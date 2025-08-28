@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>{{ title or 'Asset Review Dashboard - Mechanical' }}</title>
+    <title>{{ title or 'Asset Review Dashboard - Electrical' }}</title>
     <meta charset="utf-8">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
@@ -18,13 +18,10 @@
             <img src="{{ url_for('static', filename='ubc-logo.png') }}" alt="UBC Logo" style="height: 72px; margin-right: 16px;">
         </a>
         <a href="{{ url_for('index') }}" style="text-decoration: none; color: black;">
-            <h1 class="m-0">{{ title or 'Asset Review Dashboard - Mechanical' }}</h1>
+            <h1 class="m-0">{{ title or 'Asset Review Dashboard - Electrical' }}</h1>
         </a>
     </div>
 
-    <!-- (3) Texto "Mechanical (ME) Only" removido -->
-
-    <!-- Quick filters -->
     <div class="filters-bar row g-3 align-items-center mb-3">
         <div class="col-auto">
             <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm px-3 {% if not flagged_filter and not modified_filter and not missed_filter %}active{% endif %}">All</a>
@@ -64,16 +61,16 @@
             <tr>
                 <th class="text-center">QR Code</th>
                 <th class="text-center">Building</th>
-                <!-- Type removido -->
-                <th class="text-start">Manufacturer</th>
-                <th class="text-start">Model</th>
-                <th class="text-start">Serial</th>
-                <th class="text-center">Year</th>
-                <th class="text-start">UBC Tag</th>
-                <th class="text-start">Technical Safety BC</th>
-                <th class="text-start">Asset Group</th>
+
+                <th class="text-start">UBC Asset Tag</th>
+                <th class="text-start">Branch Panel</th>
+                <th class="text-start">Ampere</th>
+                <th class="text-start">Supply From</th>
+                <th class="text-start">Volts</th>
+                <th class="text-start">Location</th>
                 <th class="text-start">Attribute</th>
                 <th class="text-start">Description</th>
+
                 <th class="text-center">Approved</th>
                 <th class="text-center">Flagged</th>
                 <th class="text-center">Modified</th>
@@ -86,14 +83,13 @@
             <tr>
                 <td>{{ item.qr_code }}</td>
                 <td>{{ item.building }}</td>
-                <!-- Type removido -->
-                <td class="text-start">{{ item.Manufacturer }}</td>
-                <td class="text-start">{{ item.Model }}</td>
-                <td class="text-start">{{ item['Serial Number'] }}</td>
-                <td>{{ item.Year }}</td>
-                <td class="text-start">{{ item['UBC Tag'] }}</td>
-                <td class="text-start">{{ item['Technical Safety BC'] }}</td>
-                <td class="text-start">{{ item['Asset Group'] }}</td>
+
+                <td class="text-start">{{ item['UBC Asset Tag'] }}</td>
+                <td class="text-start">{{ item['Branch Panel'] }}</td>
+                <td class="text-start">{{ item['Ampere'] }}</td>
+                <td class="text-start">{{ item['Supply From'] }}</td>
+                <td class="text-start">{{ item['Volts'] }}</td>
+                <td class="text-start">{{ item['Location'] }}</td>
                 <td class="text-start">{{ item['Attribute'] }}</td>
                 <td class="text-start">{{ item['Description'] }}</td>
 
@@ -142,29 +138,27 @@
     <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
 
     <script>
-      // Memorizar filtros rápidos
       try { localStorage.setItem('dashboardQuery', window.location.search || ''); } catch (e) {}
 
-      // Tooltips
       document.addEventListener('DOMContentLoaded', function () {
         var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
         tooltipTriggerList.map(function (el) { return new bootstrap.Tooltip(el) })
       });
 
       $(document).ready(function () {
-          // (1) NOVOS ÍNDICES (sem coluna Type)
           var colQR = 0,
               colBuilding = 1,
-              colManufacturer = 2,
-              colModel = 3,
-              colSerial = 4,
-              colYear = 5,
-              colUBC = 6,
-              colTSBC = 7,
-              colAssetGroup = 8,
-              colAttribute = 9,
-              colDescription = 10,
-              colApproved = 11;
+
+              colUBC = 2,
+              colBranch = 3,
+              colAmpere = 4,
+              colSupply = 5,
+              colVolts = 6,
+              colLocation = 7,
+              colAttribute = 8,
+              colDescription = 9,
+
+              colApproved = 10;
 
           var table = $('#assetTable').DataTable({
               pageLength: 15,
@@ -172,8 +166,7 @@
               stateSave: true,
               stateDuration: -1,
               columnDefs: [
-                  // Orderable nas colunas principais
-                  { orderable: true, targets: [colQR, colBuilding, colManufacturer, colModel, colSerial, colYear, colAssetGroup, colAttribute, colDescription] },
+                  { orderable: true, targets: [colQR, colBuilding, colUBC, colBranch, colAmpere, colSupply, colVolts, colLocation, colAttribute, colDescription] },
                   { orderable: false, targets: [colApproved] }
               ],
               createdRow: function (row, data, dataIndex) {
@@ -183,7 +176,6 @@
               }
           });
 
-          // Popular Building select
           function populateBuilding() {
               var select = $('#filter-building');
               select.find('option:not(:first)').remove();
@@ -198,7 +190,6 @@
           }
           populateBuilding();
 
-          // Restaurar estado salvo (Building/Approved)
           var state = table.state.loaded();
           if (state && state.columns) {
               var bSearch = state.columns[colBuilding]?.search?.search || '';
@@ -218,13 +209,11 @@
               if ($('#filter-building').val()) $('#filter-building').val($('#filter-building').val());
           });
 
-          // Filtro por Building
           $('#filter-building').on('change', function () {
               var val = $(this).val();
               table.column(colBuilding).search(val ? '^' + $.fn.dataTable.util.escapeRegex(val) + '$' : '', true, false).draw();
           });
 
-          // Filtro por Approved
           $('#filter-approved').on('change', function () {
               var v = $(this).val();
               if (v === 'True') {
@@ -236,7 +225,6 @@
               }
           });
 
-          // Search usando data-search do Approved
           $.fn.dataTable.ext.order['dom-data-search'] = function (settings, col) {
               return this.api().column(col, { order: 'index' }).nodes().map(function (td) {
                   return $(td).attr('data-search') || '';
@@ -253,7 +241,6 @@
               return (val.indexOf(search) !== -1);
           });
 
-          // Toggle Approved -> POST + atualiza célula
           $('#assetTable').on('click', '.approved-cell', function() {
               var cell = $(this);
               var docId = cell.data('docid');
