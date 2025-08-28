@@ -3,7 +3,7 @@ import json
 import re
 import sqlite3
 from functools import lru_cache
-from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify, abort
+from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify
 
 app = Flask(
     __name__,
@@ -12,38 +12,32 @@ app = Flask(
 )
 
 # --- Paths ---
-JSON_DIR = r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\QR_code_project\API\Output_jason_api"
-IMG_DIR  = r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\QR_code_project\Capture_photos_upload"
+JSON_DIR = r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\Git_control\API Picture Test\Output_jason_api"
+IMG_DIR  = r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\Git_control\API Picture Test"
 
-# --- SQLite DB ---
-DB_PATH = r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\QR_code_project\asset_capture_app\data\QR_codes.db"
+# --- SQLite DB (for dropdown options) ---
+DB_PATH = r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\Git_control\API Picture Test\QR_codes.db"
 
-# Tabela/colunas
-QR_CODES_TABLE = "QR_codes"
-QR_CODE_ID_COL = "QR_code_ID"
-QR_APPROVED_COL = "Approved"
-
-# Ajuste se o schema dos dropdowns for diferente:
+# Adjust these if your schema differs:
 ASSET_GROUP_TABLE = "Asset_Group"
-ASSET_GROUP_COL   = "name"
+ASSET_GROUP_COL   = "name"   # e.g., name / Asset_Group / GroupName
 
 ATTRIBUTE_TABLE   = "Attribute"
-ATTRIBUTE_COL     = "Code"
+ATTRIBUTE_COL     = "Code"   # per your request
 
 VALID_IMAGE_EXTS = ['.jpg', '.JPG', '.jpeg', '.JPEG', '.png', '.PNG']
 
-# Missed Photo check: falta entre -0, -1, -2 => YES
+# Missed Photo check: any missing among -0, -1, -2 => YES
 SEQ_CHECK = ['-0', '-1', '-2']
-# Review pode mostrar -3 se existir
+# Review can show -3 if present
 SEQ_SHOW  = ['-0', '-1', '-2', '-3']
 
-# Nome de arquivo JSON: "<QR>_ME_<Building>.json"
-# groups: (qr, asset_type_mid, building)
+# JSON filename pattern: "<QR>_ME_<Building>.json"
 JSON_NAME_RE = re.compile(r"^(\d+)_([A-Za-z]+)_(\d+(?:-\d+)?)\.json$")
 
 
 def find_image(qr: str, building: str, seq_tag: str):
-    """Encontra imagem pelo padrão '<QR> <Building> ME - <seq>.<ext>'."""
+    """Find image by pattern: '<QR> <Building> ME - <seq>.<ext>'."""
     seq = seq_tag.replace('-', '').strip()
     base = f"{qr} {building} ME - {seq}"
     for ext in VALID_IMAGE_EXTS:
@@ -55,12 +49,12 @@ def find_image(qr: str, building: str, seq_tag: str):
 
 @lru_cache(maxsize=1)
 def _connectable():
-    """Cache para verificar existência do DB."""
+    """Check DB path once (cached)."""
     return os.path.exists(DB_PATH)
 
 
 def _fetch_column_values(table: str, col: str):
-    """Lista única (ord.) para dropdowns."""
+    """Return sorted unique non-empty strings for dropdowns."""
     if not _connectable():
         return []
     try:
@@ -93,22 +87,10 @@ def _compute_description(asset_group: str, ubc_tag: str) -> str:
     return ag or ubc
 
 
-def _is_me_filename(filename: str) -> bool:
-    """True se o JSON encode 'ME' no nome do arquivo."""
-    m = JSON_NAME_RE.match(filename)
-    if not m:
-        return False
-    _qr, asset_type_mid, _building = m.groups()
-    return asset_type_mid.upper() == "ME"
-
-
 def load_json_items():
-    """Carrega SOMENTE itens ME para o dashboard."""
     items = []
     for filename in os.listdir(JSON_DIR):
         if not filename.endswith(".json") or filename.endswith("_raw_ocr.json"):
-            continue
-        if not _is_me_filename(filename):
             continue
 
         m = JSON_NAME_RE.match(filename)
@@ -127,25 +109,25 @@ def load_json_items():
                 print(f"⚠️ Skipped {filename}: 'structured_data' is not a dict")
                 continue
 
-            # Garantir chaves
+            # Ensure keys exist to keep them visible/editable
             data.setdefault("Manufacturer", "")
             data.setdefault("Model", "")
             data.setdefault("Serial Number", "")
             data.setdefault("Year", "")
-            data.setdefault("UBC Tag", "")
+            data.setdefault("UBC Asset Tag", "")
             data.setdefault("Technical Safety BC", "")
             data.setdefault("Asset Group", "")
             data.setdefault("Attribute", "")
             data.setdefault("Flagged", "false")
-            data.setdefault("Approved", "")  # blank = False
+            data.setdefault("Approved", "")  # NEW: default blank = False
 
-            # Derivado
+            # Derived: Description = "Asset Group - UBC Tag"
             data["Description"] = _compute_description(
                 data.get("Asset Group"),
-                data.get("UBC Tag")
+                data.get("UBC Asset Tag")
             )
 
-            # Fotos faltantes (-0, -1, -2)
+            # Compute missing list (-0, -1, -2)
             missing_tags = [tag for tag in SEQ_CHECK if not find_image(qr, building, tag)]
             missing_photo = len(missing_tags) > 0
             friendly_map = {'-0': 'Asset Plate', '-1': 'UBC Tag', '-2': 'Main Picture'}
@@ -155,9 +137,9 @@ def load_json_items():
                 "doc_id": doc_id,
                 "qr_code": qr,
                 "building": building,
-                "asset_type": "ME",  # imposto pelo filtro
+                "asset_type": raw.get("asset_type", ""),
                 "Flagged": data.get("Flagged", "false"),
-                "Approved": data.get("Approved", ""),
+                "Approved": data.get("Approved", ""),  # include in dashboard data
                 "Modified": raw.get("modified", False),
                 "Missed Photo": "YES" if missing_photo else "NO",
                 "Missing List": missing_friendly,
@@ -175,7 +157,7 @@ def index():
     modified_filter = request.args.get("modified")
     missed_filter = request.args.get("missed")
 
-    all_data = load_json_items()  # ME-only
+    all_data = load_json_items()
 
     count_flagged = sum(1 for item in all_data if item.get("Flagged") == "true")
     count_modified = sum(1 for item in all_data if item.get("Modified"))
@@ -194,7 +176,6 @@ def index():
 
     return render_template(
         "dashboard.html",
-        title="Asset Review Dashboard - Mechanical",
         data=data,
         warn_missing=True,
         flagged_filter=flagged_filter,
@@ -208,19 +189,15 @@ def index():
 
 @app.route("/review/<doc_id>")
 def review(doc_id):
-    # Bloquear abertura manual para não-ME
-    m = JSON_NAME_RE.match(f"{doc_id}.json")
-    if not m:
-        return "Bad ID", 400
-    qr, asset_type_mid, building = m.groups()
-    if asset_type_mid.upper() != "ME":
-        # Não expor que existe: 404
-        return "Not found", 404
-
     json_path = os.path.join(JSON_DIR, f"{doc_id}.json")
     if not os.path.exists(json_path):
         return "Not found", 404
 
+    m = JSON_NAME_RE.match(f"{doc_id}.json")
+    if not m:
+        return "Bad ID", 400
+
+    qr, asset_type_mid, building = m.groups()
     with open(json_path, 'r', encoding='utf-8') as f:
         loaded = json.load(f)
 
@@ -228,10 +205,10 @@ def review(doc_id):
     data.setdefault("Asset Group", "")
     data.setdefault("Attribute", "")
     data.setdefault("UBC Tag", "")
-    data.setdefault("Approved", "")
+    data.setdefault("Approved", "")  # keep approved in data set
     data["Description"] = _compute_description(data.get("Asset Group"), data.get("UBC Tag"))
 
-    # Mapa de imagens
+    # Build image map
     images = {}
     for tag in SEQ_SHOW:
         filename = find_image(qr, building, tag)
@@ -240,44 +217,21 @@ def review(doc_id):
         else:
             images[tag] = {"exists": False, "url": None}
 
-    # Dropdowns
+    # Dropdown options from DB
     asset_group_options = get_asset_group_options()
     attribute_options   = get_attribute_options()
 
     return render_template(
         "review.html",
-        title="Asset Review - Mechanical",
         doc_id=doc_id,
         qr_code=qr,
         building=building,
-        asset_type="ME",
+        asset_type=loaded.get("asset_type", ""),
         data=data,
         images=images,
         asset_group_options=asset_group_options,
         attribute_options=attribute_options
     )
-
-
-def _db_upsert_qr_approved(qr_code_id: str, approved_text: str):
-    """
-    Grava em SQLite:
-      - approved_text = '1' quando aprovado
-      - approved_text = '' quando não aprovado
-    Usa UPSERT em (QR_code_ID).
-    """
-    if not _connectable():
-        raise RuntimeError("Database file not found.")
-
-    with sqlite3.connect(DB_PATH) as conn:
-        cur = conn.cursor()
-        # UPSERT compatível com SQLite 3.24+
-        cur.execute(f"""
-            INSERT INTO "{QR_CODES_TABLE}" ("{QR_CODE_ID_COL}", "{QR_APPROVED_COL}")
-            VALUES (?, ?)
-            ON CONFLICT("{QR_CODE_ID_COL}") DO UPDATE SET
-                "{QR_APPROVED_COL}" = excluded."{QR_APPROVED_COL}";
-        """, (qr_code_id, approved_text))
-        conn.commit()
 
 
 @app.route("/review/<doc_id>", methods=["POST"])
@@ -294,20 +248,20 @@ def save_review(doc_id):
         structured = {}
         json_data["structured_data"] = structured
 
-    # Ensure keys
+    # Ensure critical keys exist
     structured.setdefault("Asset Group", "")
     structured.setdefault("Attribute", "")
-    structured.setdefault("UBC Tag", "")
-    structured.setdefault("Approved", "")
+    structured.setdefault("UBC Asset Tag", "")
+    structured.setdefault("Approved", "")  # ensure exists, but not toggled here
     structured.setdefault("Flagged", "false")
 
-    # Flagged
+    # Update Flagged
     new_flagged = "true" if request.form.get("Flagged") == "on" else "false"
     if structured.get("Flagged", "false") != new_flagged:
         json_data["modified"] = True
     structured["Flagged"] = new_flagged
 
-    # Campos editáveis (exceto Description/Approved)
+    # Update known fields (skip derived Description and Approved)
     for field in list(structured.keys()):
         if field in ("Flagged", "Description", "Approved"):
             continue
@@ -316,7 +270,7 @@ def save_review(doc_id):
             json_data["modified"] = True
         structured[field] = form_value
 
-    # Novos campos eventuais
+    # Capture any brand-new fields (future-proof)
     for field, form_value in request.form.items():
         if field in ("Flagged", "action", "Description", "dashboard_query"):
             continue
@@ -324,7 +278,7 @@ def save_review(doc_id):
             structured[field] = form_value
             json_data["modified"] = True
 
-    # Recalcular Description
+    # Recompute derived Description
     structured["Description"] = _compute_description(
         structured.get("Asset Group"),
         structured.get("UBC Tag")
@@ -333,13 +287,10 @@ def save_review(doc_id):
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(json_data, f, ensure_ascii=False, indent=4)
 
-    # Navegação Next/Prev (ME-only)
+    # Next/Prev navigation stays within review context
     all_files = sorted(
         f for f in os.listdir(JSON_DIR)
-        if f.endswith(".json")
-        and not f.endswith("_raw_ocr.json")
-        and JSON_NAME_RE.match(f)
-        and _is_me_filename(f)
+        if f.endswith(".json") and not f.endswith("_raw_ocr.json") and JSON_NAME_RE.match(f)
     )
     current_name = f"{doc_id}.json"
     try:
@@ -367,22 +318,10 @@ def save_review(doc_id):
 
 @app.route("/toggle_approved/<doc_id>", methods=["POST"])
 def toggle_approved(doc_id):
-    """Alterna Approved no JSON e grava em QR_codes (SQLite):
-       - '1' quando aprovado
-       - '' quando desmarcado
-    """
+    """Toggle Approved between '' (False) and 'True' (True) and persist to file."""
     json_path = os.path.join(JSON_DIR, f"{doc_id}.json")
     if not os.path.exists(json_path):
         return jsonify({"success": False, "error": "Not found"}), 404
-
-    # Extrair QR do doc_id
-    m = JSON_NAME_RE.match(f"{doc_id}.json")
-    if not m:
-        return jsonify({"success": False, "error": "Bad ID"}), 400
-    qr, asset_type_mid, building = m.groups()
-    if asset_type_mid.upper() != "ME":
-        # Proteção extra: só permite ME
-        return jsonify({"success": False, "error": "Not allowed"}), 403
 
     try:
         with open(json_path, "r", encoding="utf-8") as f:
@@ -394,16 +333,11 @@ def toggle_approved(doc_id):
             json_data["structured_data"] = structured
 
         current = structured.get("Approved", "")
-        new_val = "True" if current == "" else ""
-        structured["Approved"] = new_val
+        structured["Approved"] = "True" if current == "" else ""
         json_data["structured_data"] = structured
 
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(json_data, f, ensure_ascii=False, indent=4)
-
-        # Atualizar DB: '1' quando aprovado, '' quando não
-        db_val = "1" if new_val == "True" else ""
-        _db_upsert_qr_approved(qr_code_id=qr, approved_text=db_val)
 
         return jsonify({"success": True, "new_value": structured["Approved"]})
     except Exception as e:
