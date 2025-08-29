@@ -1,173 +1,220 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8">
-    <title>Review {{ qr_code }}</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        .viewer { display: flex; gap: 1rem; align-items: flex-start; }
-        .main-image-wrap { flex: 1; text-align: center; }
-        .main-image { max-width: 100%; max-height: 70vh; transition: transform 0.2s ease; border: 1px solid #e5e5e5; border-radius: .5rem; background: #f8f9fa; }
-        .thumbs { width: 220px; display: flex; flex-direction: column; gap: .75rem; }
-        .thumb { cursor: pointer; border: 2px solid transparent; border-radius: .375rem; overflow: hidden; background: #fff; }
-        .thumb.active { border-color: #0d6efd; }
-        .thumb img { width: 100%; height: auto; display: block; }
-        .controls .btn { min-width: 120px; }
-        .field-grid { display: grid; grid-template-columns: repeat(2, minmax(280px, 1fr)); gap: 1rem 1.25rem; }
-        @media (max-width: 992px) { .viewer { flex-direction: column; } .thumbs { width: 100%; flex-direction: row; flex-wrap: wrap; } .thumb { width: 140px; } .field-grid { grid-template-columns: 1fr; } }
-        .muted { color: #6c757d; }
-    </style>
+  <meta charset="utf-8">
+  <title>Asset Review - Electrical</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body{background:#fafafa}
+    .shell{background:#fff;border:1px solid #e9ecef;border-radius:.6rem}
+    .header{border-bottom:1px solid #e9ecef;background:#fff;border-radius:.6rem .6rem 0 0}
+    .header .meta small{color:#6c757d}
+    .viewer{display:grid;grid-template-columns:minmax(520px,1fr) 480px;gap:1rem}
+    .image-box{background:#fff;border:1px solid #e9ecef;border-radius:.5rem;padding:.5rem;display:flex;align-items:center;justify-content:center;min-height:520px}
+    .image-box img{max-width:100%;max-height:76vh;transition:transform .15s ease}
+    .thumbs{display:flex;gap:.75rem;margin-top:.75rem}
+    .thumb{width:120px;border:1px solid #e9ecef;border-radius:.5rem;overflow:hidden;background:#fff;cursor:pointer}
+    .thumb.active{outline:2px solid #0d6efd}
+    .thumb .label{font-size:.8rem;padding:.25rem .4rem;color:#6c757d;border-bottom:1px solid #eef1f4;background:#fafafa}
+    .thumb .missing{height:84px;display:flex;align-items:center;justify-content:center;background:#fde2e1;color:#a10000}
+    .thumb img{width:100%;height:84px;object-fit:cover;display:block}
+    .form-card{background:#fff;border:1px solid #e9ecef;border-radius:.5rem;padding:1rem}
+    .field-grid{display:grid;grid-template-columns:1fr;gap:.75rem}
+    .desc-hint{font-size:.75rem;color:#cc3366}
+    @media (max-width:1100px){.viewer{grid-template-columns:1fr}}
+  </style>
 </head>
-<body class="container py-4">
+<body class="container-fluid py-3">
 
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div class="d-flex align-items-center">
-            <a href="{{ url_for('index') }}">
-                <img src="{{ url_for('static', filename='ubc-logo.png') }}" alt="UBC Logo" style="height: 64px; margin-right: 16px;">
-            </a>
-            <div>
-                <h2 class="m-0">Review Asset: {{ qr_code }}</h2>
-                <div class="muted">
-                    Building: <strong>{{ building }}</strong>
-                    &nbsp;•&nbsp;
-                    Type: <strong>{{ (asset_type or '') | upper | replace('-', '') | trim }}</strong>
-                </div>
-            </div>
+  <div class="shell mx-auto" style="max-width:1600px">
+    <!-- Header -->
+    <div class="header p-2 px-3 d-flex align-items-center justify-content-between">
+      <div class="d-flex align-items-center gap-3">
+        <a href="{{ url_for('index') }}"><img src="{{ url_for('static', filename='ubc-logo.png') }}" alt="UBC" style="height:38px"></a>
+        <div class="meta">
+          <div class="fw-semibold">Asset Review - Electrical</div>
+          <small>
+            <strong>QR:</strong> {{ qr_code }} &nbsp;&nbsp;
+            <strong>Building:</strong> {{ building }} &nbsp;&nbsp;
+            <strong>Type:</strong> {{ (asset_type or '') | upper | replace('-', '') | trim }} &nbsp;&nbsp;
+            <strong>Doc:</strong> {{ doc_id }}
+          </small>
         </div>
-        <div>
-            <a id="backLink" href="{{ url_for('index') }}" class="btn btn-secondary">Back to Dashboard</a>
-        </div>
+      </div>
+      <a id="backTop" class="btn btn-outline-secondary btn-sm" href="{{ url_for('index') }}">Back to Dashboard</a>
     </div>
 
-    <form method="POST" action="{{ url_for('save_review', doc_id=doc_id) }}">
-        <input type="hidden" name="dashboard_query" id="dashboard_query" value="">
+    <form method="POST" action="{{ url_for('save_review', doc_id=doc_id) }}" class="p-3">
+      <input type="hidden" name="dashboard_query" id="dashboard_query" value="">
 
-        <div class="viewer mb-4">
-            <div class="main-image-wrap">
-                {% set default_tag = '-0' if images.get('-0') and images['-0'].exists else (('-1' if images.get('-1') and images['-1'].exists else ('-2' if images.get('-2') and images['-2'].exists else None))) %}
-                {% set default_url = images[default_tag].url if default_tag else None %}
-                <img id="mainImage" class="main-image" src="{{ default_url if default_url else '' }}" alt="Main asset image">
-                <div class="d-flex justify-content-center gap-2 mt-3 controls">
-                    <button type="button" class="btn btn-outline-primary btn-sm" id="zoomIn">+ Zoom</button>
-                    <button type="button" class="btn btn-outline-primary btn-sm" id="zoomOut">- Zoom</button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm" id="rotate">Rotate</button>
-                    <button type="submit" class="btn btn-outline-dark btn-sm" name="action" value="save_prev">⬅️ Save & Previous</button>
-                    <button type="submit" class="btn btn-primary btn-sm" name="action" value="save">💾 Save</button>
-                    <button type="submit" class="btn btn-primary btn-sm" name="action" value="save_next">💾 Save & Next ➡️</button>
-                    <button type="submit" class="btn btn-outline-warning btn-sm" name="action" value="save_next">Skip</button>
-                </div>
+      <div class="viewer">
+        <!-- Left: image + controls + thumbs -->
+        <div>
+          <div class="image-box">
+            {% set default_tag = '-0' if images.get('-0') and images['-0'].exists else (('-1' if images.get('-1') and images['-1'].exists else ('-2' if images.get('-2') and images['-2'].exists else None))) %}
+            {% set default_url = images[default_tag].url if default_tag else None %}
+            <img id="mainImage" src="{{ default_url if default_url else '' }}" alt="Main">
+          </div>
+
+          <!-- Under picture: ONLY Back + Skip -->
+          <div class="d-flex align-items-center justify-content-between mt-2">
+            <!-- left: zoom tools -->
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-outline-primary btn-sm" id="zoomIn">+ Zoom</button>
+              <button type="button" class="btn btn-outline-primary btn-sm" id="zoomOut">- Zoom</button>
+              <button type="button" class="btn btn-outline-secondary btn-sm" id="rotate">Rotate</button>
             </div>
-
-            <div class="thumbs">
-                {% for tag,label in {'-0':'Schedule/Header','-1':'UBC Asset Tag','-2':'Main Asset'}.items() %}
-                    {% set im = images.get(tag) %}
-                    <div class="thumb {% if default_tag == tag %}active{% endif %}" data-url="{{ im.url if im and im.exists else '' }}" data-tag="{{ tag }}">
-                        <div class="px-2 pt-2 small">{{ label }}</div>
-                        {% if im and im.exists %}
-                            <img src="{{ im.url }}" alt="{{ tag }}">
-                        {% else %}
-                            <div class="d-flex align-items-center justify-content-center" style="height:100px;background:#f8d7da;color:#842029;">❌ Missing</div>
-                        {% endif %}
-                    </div>
-                {% endfor %}
+            <!-- right: Back + Skip only -->
+            <div class="d-flex gap-2">
+              <a id="backUnderPic" href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">Back</a>
+              <button type="submit" class="btn btn-outline-warning btn-sm" name="action" value="save_next">Skip</button>
             </div>
-        </div>
+          </div>
 
-        <h4 class="mb-3">Manual Review</h4>
-
-        <div class="field-grid mb-3">
-            <div>
-                <label class="form-label">Attribute</label>
-                <select class="form-select" name="Attribute">
-                    <option value=""></option>
-                    {% for opt in attribute_options %}
-                        <option value="{{ opt }}" {% if (data.get('Attribute') or '') == opt %}selected{% endif %}>{{ opt }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <div>
-                <label class="form-label">Description (auto)</label>
-                <input id="descField" type="text" class="form-control" value="{{ data.get('Description','') }}" readonly>
-            </div>
-
-            <!-- EL editable fields -->
-            {% for key in ['UBC Asset Tag','Branch Panel','Ampere','Supply From','Volts','Location'] %}
-            <div>
-                <label class="form-label">{{ key }}</label>
-                <input type="text" class="form-control el-input" name="{{ key }}" value="{{ data.get(key,'') }}">
-            </div>
+          <!-- Thumbnails -->
+          <div class="thumbs">
+            {% for tag,label in {'-0':'Asset Plate','-1':'UBC Tag','-2':'Main Picture'}.items() %}
+              {% set im = images.get(tag) %}
+              <div class="thumb {% if default_tag == tag %}active{% endif %}" data-url="{{ im.url if im and im.exists else '' }}">
+                <div class="label">{{ label }}</div>
+                {% if im and im.exists %}
+                  <img src="{{ im.url }}" alt="{{ label }}">
+                {% else %}
+                  <div class="missing">❌ Missing</div>
+                {% endif %}
+              </div>
             {% endfor %}
-
+          </div>
         </div>
 
-        <div class="form-check mb-4">
-            <input class="form-check-input" type="checkbox" name="Flagged" id="flagged" {% if data.get('Flagged') == 'true' %}checked{% endif %}>
-            <label class="form-check-label" for="flagged">Flag for Review</label>
-        </div>
+        <!-- Right: form (Save buttons live here) -->
+        <div class="form-card">
+          <div class="field-grid">
 
-        <div class="d-flex gap-2 mb-4">
-            <a id="backLinkBottom" href="{{ url_for('index') }}" class="btn btn-secondary">Back</a>
-            <button type="submit" class="btn btn-primary" name="action" value="save">💾 Save</button>
-            <button type="submit" class="btn btn-primary" name="action" value="save_next">💾 Save & Next</button>
-            <button type="submit" class="btn btn-outline-primary" name="action" value="save_prev">⬅️ Save & Previous</button>
+            <div>
+              <label class="form-label">Attribute</label>
+              <select class="form-select" name="Attribute">
+                <option value=""></option>
+                {% for opt in attribute_options %}
+                  <option value="{{ opt }}" {% if (data.get('Attribute') or '') == opt %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div>
+              <label class="form-label">UBC Asset Tag</label>
+              <input type="text" class="form-control" name="UBC Asset Tag" value="{{ data.get('UBC Asset Tag','') }}">
+            </div>
+
+            <div>
+              <label class="form-label">Branch Panel</label>
+              <input type="text" class="form-control" name="Branch Panel" value="{{ data.get('Branch Panel','') }}">
+            </div>
+
+            <div>
+              <label class="form-label">Ampere</label>
+              <input type="text" class="form-control" name="Ampere" value="{{ data.get('Ampere','') }}">
+            </div>
+
+            <div>
+              <label class="form-label">Supply From</label>
+              <input type="text" class="form-control" name="Supply From" value="{{ data.get('Supply From','') }}">
+            </div>
+
+            <div>
+              <label class="form-label">Volts</label>
+              <input type="text" class="form-control" name="Volts" value="{{ data.get('Volts','') }}">
+            </div>
+
+            <div>
+              <label class="form-label">Location</label>
+              <input type="text" class="form-control" name="Location" value="{{ data.get('Location','') }}">
+            </div>
+
+            <div>
+              <label class="form-label">Description (auto)</label>
+              <input id="descField" type="text" class="form-control" value="{{ data.get('Description','') }}" readonly>
+              <div class="desc-hint">Generated automatically using <b>UBC Asset Tag</b> or <b>Branch Panel</b>.</div>
+            </div>
+
+            <div class="form-check mt-2">
+              <input class="form-check-input" type="checkbox" name="Flagged" id="flagged" {% if data.get('Flagged') == 'true' %}checked{% endif %}>
+              <label class="form-check-label" for="flagged">Flag for Review</label>
+            </div>
+
+            <!-- Save buttons ONLY here -->
+            <div class="d-flex gap-2 mt-2">
+              <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">Back</a>
+              <button type="submit" class="btn btn-primary btn-sm" name="action" value="save">Save</button>
+              <button type="submit" class="btn btn-outline-dark btn-sm" name="action" value="save_prev">⬅️ Save & Prev</button>
+              <button type="submit" class="btn btn-primary btn-sm" name="action" value="save_next">Save & Next</button>
+            </div>
+
+          </div>
         </div>
+      </div>
     </form>
+  </div>
 
-    <footer class="text-center mt-5 pt-4 border-top text-muted small">
-        © 2025 University of British Columbia - Maintenance Planning Department. All rights reserved.
-    </footer>
+  <footer class="text-center mt-3 pt-3 text-muted small">
+    © 2025 University of British Columbia - Maintenance Planning Department. All rights reserved.
+  </footer>
 
-    <script>
-        (function() {
-            const mainImg = document.getElementById('mainImage');
-            let scale = 1.0, rotation = 0;
+  <script>
+    (function(){
+      // zoom/rotate
+      const img = document.getElementById('mainImage');
+      let scale=1, rot=0;
+      const apply = ()=> img.style.transform = `scale(${scale}) rotate(${rot}deg)`;
+      document.getElementById('zoomIn').onclick  = ()=>{ scale=Math.min(scale+0.1,3.5); apply(); };
+      document.getElementById('zoomOut').onclick = ()=>{ scale=Math.max(scale-0.1,0.3); apply(); };
+      document.getElementById('rotate').onclick  = ()=>{ rot=(rot+90)%360; apply(); };
 
-            function applyTransform() {
-                mainImg.style.transform = 'scale(' + scale + ') rotate(' + rotation + 'deg)';
-            }
+      // thumbs
+      document.querySelectorAll('.thumb').forEach(t=>{
+        t.addEventListener('click',()=>{
+          const url=t.getAttribute('data-url');
+          if(!url) return;
+          document.querySelectorAll('.thumb').forEach(x=>x.classList.remove('active'));
+          t.classList.add('active');
+          img.src=url; scale=1; rot=0; apply();
+        });
+      });
 
-            document.getElementById('zoomIn').addEventListener('click', function() { scale = Math.min(scale + 0.1, 3.5); applyTransform(); });
-            document.getElementById('zoomOut').addEventListener('click', function() { scale = Math.max(scale - 0.1, 0.3); applyTransform(); });
-            document.getElementById('rotate').addEventListener('click', function() { rotation = (rotation + 90) % 360; applyTransform(); });
+      // keep dashboard filters
+      try{
+        const q=localStorage.getItem('dashboardQuery')||'';
+        ['backTop','backUnderPic'].forEach(id=>{
+          const a=document.getElementById(id); if(a && q && q!=='?') a.href = a.href + q;
+        });
+        const hidden=document.getElementById('dashboard_query'); if(hidden) hidden.value=q||'';
+      }catch(e){}
 
-            document.querySelectorAll('.thumb').forEach(function(el) {
-                el.addEventListener('click', function() {
-                    const url = el.getAttribute('data-url');
-                    if (url) {
-                        document.querySelectorAll('.thumb').forEach(t => t.classList.remove('active'));
-                        el.classList.add('active');
-                        mainImg.src = url;
-                        scale = 1.0; rotation = 0; applyTransform();
-                    }
-                });
-            });
+      // auto description from UBC Tag or Branch
+      const desc = document.getElementById('descField');
+      function recompute(){
+        const ubc=(document.querySelector('input[name="UBC Asset Tag"]')?.value||'').trim();
+        const branch=(document.querySelector('input[name="Branch Panel"]')?.value||'').trim();
+        const tag = ubc || branch;
+        desc.value = tag ? `Panel - ${tag}` : 'Panel';
+      }
+      ['UBC Asset Tag','Branch Panel'].forEach(n=>{
+        const el=document.querySelector(`input[name="${n}"]`);
+        if(el){ el.addEventListener('input',recompute); el.addEventListener('change',recompute); }
+      });
 
-            // Keep dashboard quick-filters (query string)
-            try {
-                const savedQuery = localStorage.getItem('dashboardQuery') || '';
-                const backTop = document.getElementById('backLink');
-                const backBottom = document.getElementById('backLinkBottom');
-                if (savedQuery && savedQuery !== '?') {
-                    if (backTop) backTop.href = backTop.href + savedQuery;
-                    if (backBottom) backBottom.href = backBottom.href + savedQuery;
-                }
-                const hidden = document.getElementById('dashboard_query');
-                if (hidden) hidden.value = savedQuery || '';
-            } catch (e) {}
-
-            // Auto-update Description = "Panel - <UBC Asset Tag>"
-            const desc = document.getElementById('descField');
-            function recomputeDesc() {
-                const inputs = document.querySelectorAll('input[name="UBC Asset Tag"]');
-                const ubc = inputs.length ? (inputs[0].value || '').trim() : '';
-                desc.value = ubc ? ('Panel - ' + ubc) : 'Panel';
-            }
-            document.querySelectorAll('input[name="UBC Asset Tag"]').forEach(inp => {
-                inp.addEventListener('input', recomputeDesc);
-                inp.addEventListener('change', recomputeDesc);
-            });
-        })();
-    </script>
+      // keyboard shortcuts (still active)
+      document.addEventListener('keydown', (e)=>{
+        if (e.target && /input|select|textarea/i.test(e.target.tagName)) return;
+        const click=(sel)=>{const el=document.querySelector(sel); if(el){el.click(); e.preventDefault();}}
+        if(e.key==='z'||e.key==='Z') click('#zoomIn');
+        if(e.key==='x'||e.key==='X') click('#zoomOut');
+        if(e.key==='r'||e.key==='R') click('#rotate');
+        if(e.key==='s'||e.key==='S') click('button[name="action"][value="save"]');
+        if(e.key==='n'||e.key==='N') click('button[name="action"][value="save_next"]');
+        if(e.key==='p'||e.key==='P') click('button[name="action"][value="save_prev"]');
+      });
+    })();
+  </script>
 </body>
 </html>
