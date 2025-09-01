@@ -16,22 +16,21 @@ JSON_DIR = r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New A
 IMG_DIR  = r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\Git_control\API Picture Test"
 
 # --- SQLite DB ---
-DB_PATH = r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\Git_control\API Picture Test\QR_codes.db"
+DB_PATH   = r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\Git_control\API Picture Test\QR_codes.db"
 SDI_TABLE = "sdi_dataset_EL"
 
-# Dropdown sources
-ASSET_GROUP_TABLE = "Asset_Group"     # mantido para futuro uso
-ASSET_GROUP_COL   = "name"
-
+# Dropdown sources (Attribute default)
 ATTRIBUTE_TABLE    = "Attribute"
-ATTRIBUTE_CODE_COL = "Code"           # e.g., 'Electrical'
-ATTRIBUTE_VAL_COL  = "Attribute"      # valor humano
+ATTRIBUTE_CODE_COL = "Code"       # filter by 'Electrical'
+ATTRIBUTE_VAL_COL  = "Attribute"  # default value to use
 
 VALID_IMAGE_EXTS = ['.jpg', '.JPG', '.jpeg', '.JPEG', '.png', '.PNG']
 
-# EL aceita apenas -0, -1, -2
-SEQ_CHECK = ['-0', '-1', '-2']
-SEQ_SHOW  = ['-0', '-1', '-2']
+# ---------- PHOTO RULES ----------
+# Count fraction over all 3; pass requires -1 and -2
+ALL_SHOW  = ['-0', '-1', '-2']         # -0 Asset Plate, -1 Asset Tag, -2 Main Asset
+REQUIRED  = ['-1', '-2']               # required for "pass"
+SEQ_SHOW  = ALL_SHOW[:]                # thumbs to display
 
 # JSON filename pattern: "<QR>_EL_<Building>.json"
 JSON_NAME_RE = re.compile(r"^(\d+)_EL_(\d+(?:-\d+)?)\.json$")
@@ -53,23 +52,6 @@ def _connectable():
     return os.path.exists(DB_PATH)
 
 
-def _fetch_column_values(table: str, col: str):
-    if not _connectable():
-        return []
-    try:
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-            query = f'SELECT "{col}" AS val FROM "{table}" WHERE "{col}" IS NOT NULL'
-            cur.execute(query)
-            vals = [str(r["val"]).strip() for r in cur.fetchall() if str(r["val"]).strip()]
-            uniq = sorted(set(vals), key=lambda s: (s.lower(), s))
-            return uniq
-    except Exception as e:
-        print(f"⚠️ DB fetch failed for {table}.{col}: {e}")
-        return []
-
-
 def _fetch_attribute_default_for_code(code_value: str) -> str:
     if not _connectable():
         return ""
@@ -86,14 +68,6 @@ def _fetch_attribute_default_for_code(code_value: str) -> str:
         return ""
 
 
-def get_asset_group_options():
-    return _fetch_column_values(ASSET_GROUP_TABLE, ASSET_GROUP_COL)
-
-
-def get_attribute_options():
-    return _fetch_column_values(ATTRIBUTE_TABLE, ATTRIBUTE_VAL_COL)
-
-
 def _desc_from_ubc_or_branch(ubc_tag: str, branch: str) -> str:
     tag = (ubc_tag or "").strip() or (branch or "").strip()
     return f"Panel - {tag}" if tag else "Panel"
@@ -102,13 +76,13 @@ def _desc_from_ubc_or_branch(ubc_tag: str, branch: str) -> str:
 def _db_existing_cols(conn) -> list:
     cur = conn.cursor()
     cur.execute(f'PRAGMA table_info("{SDI_TABLE}")')
-    return [r[1] for r in cur.fetchall()]  # name
+    return [r[1] for r in cur.fetchall()]
 
 
 def _db_upsert_el_row(conn, row: dict):
     """
-    UPDATE por ("QR Code","Building"); se não achar, INSERT.
-    Compatível sem PK/UNIQUE.
+    UPDATE by ("QR Code","Building"); if not found, INSERT.
+    Works without PK/UNIQUE.
     """
     all_cols = [
         "QR Code","Building","Description","UBC Asset Tag","Branch Panel","Ampere",
@@ -122,8 +96,8 @@ def _db_upsert_el_row(conn, row: dict):
         set_part = ", ".join([f'"{c}"=?' for c in set_cols])
         sql_upd = f'''
             UPDATE "{SDI_TABLE}"
-            SET {set_part}
-            WHERE "QR Code"=? AND "Building"=?
+               SET {set_part}
+             WHERE "QR Code"=? AND "Building"=?
         '''
         params_upd = [row.get(c, "") for c in set_cols] + [row.get("QR Code",""), row.get("Building","")]
         cur = conn.execute(sql_upd, params_upd)
@@ -143,19 +117,17 @@ def _db_upsert_el_row(conn, row: dict):
 
 def _sync_db_from_structured(qr: str, building: str, sd: dict):
     """
-    Prepara linha com as regras EL e grava em sdi_dataset_EL.
-    Mapeia Approved: JSON 'True' -> DB '1'; caso contrário -> ''.
+    Prepare row and upsert into sdi_dataset_EL.
+    Maps Approved: JSON 'True' -> DB '1'; otherwise ''.
     """
     ubc = (sd.get("UBC Asset Tag") or "").strip()
     branch = (sd.get("Branch Panel") or "").strip()
     ubc_final = ubc if ubc else branch
 
-    # default de Attribute (Electrical) se vazio
     attr = (sd.get("Attribute") or "").strip()
     if not attr:
         attr = _fetch_attribute_default_for_code("Electrical")
 
-    # MAPA Approved: 'True' (JSON) -> '1' (DB); senão -> ''
     approved_db = "1" if (sd.get("Approved") or "").strip() == "True" else ""
 
     row = {
@@ -168,9 +140,9 @@ def _sync_db_from_structured(qr: str, building: str, sd: dict):
         "Supply From": (sd.get("Supply From") or "").strip(),
         "Volts": (sd.get("Volts") or "").strip(),
         "Location": (sd.get("Location") or "").strip(),
-        "Asset Group": (sd.get("Asset Group") or "").strip(),  # manter se existir na JSON
+        "Asset Group": (sd.get("Asset Group") or "").strip(),
         "Attribute": attr,
-        "Approved": approved_db,  # <- aqui gravamos '1' ou ''
+        "Approved": approved_db,
     }
 
     with sqlite3.connect(DB_PATH) as conn:
@@ -180,6 +152,7 @@ def _sync_db_from_structured(qr: str, building: str, sd: dict):
 
 def load_json_items():
     items = []
+
     for filename in os.listdir(JSON_DIR):
         if not filename.endswith(".json") or filename.endswith("_raw_ocr.json"):
             continue
@@ -200,32 +173,30 @@ def load_json_items():
                 print(f"⚠️ Skipped {filename}: 'structured_data' is not a dict")
                 continue
 
-            # Garantir chaves EL
-            data.setdefault("Description", "")
-            data.setdefault("UBC Asset Tag", "")
-            data.setdefault("Branch Panel", "")
-            data.setdefault("Ampere", "")
-            data.setdefault("Supply From", "")
-            data.setdefault("Volts", "")
-            data.setdefault("Location", "")
-            data.setdefault("Attribute", "")
+            # Ensure keys
+            keep_blank = ["UBC Asset Tag","Branch Panel","Ampere","Supply From","Volts","Location",
+                          "Attribute","Approved"]
+            for k in keep_blank:
+                data.setdefault(k, "")
             data.setdefault("Flagged", "false")
-            data.setdefault("Approved", "")
 
-            # default de Attribute (Electrical)
+            # default Attribute for Electrical
             if not (data.get("Attribute") or "").strip():
                 default_attr = _fetch_attribute_default_for_code("Electrical")
                 if default_attr:
                     data["Attribute"] = default_attr
 
-            # Description derivada
+            # Derived Description
             data["Description"] = _desc_from_ubc_or_branch(data.get("UBC Asset Tag"), data.get("Branch Panel"))
 
-            # Missed photos
-            missing_tags = [tag for tag in SEQ_CHECK if not find_image(qr, building, tag)]
-            missing_photo = len(missing_tags) > 0
-            friendly_map = {'-0': 'Schedule/Header', '-1': 'UBC Asset Tag', '-2': 'Main Asset'}
-            missing_friendly = ", ".join(friendly_map.get(tag, tag) for tag in missing_tags)
+            # ---- Photo logic (your rule) ----
+            present_map = {tag: bool(find_image(qr, building, tag)) for tag in ALL_SHOW}
+            pass_ok = all(present_map.get(tag, False) for tag in REQUIRED)
+            present_all = sum(1 for tag in ALL_SHOW if present_map.get(tag, False))
+            fraction = f"{present_all}/3"
+
+            friendly_map = {'-0': 'Asset Plate', '-1': 'Asset Tag', '-2': 'Main Asset'}
+            missing_list = ", ".join(friendly_map[t] for t in ALL_SHOW if not present_map.get(t, False))
 
             items.append({
                 "doc_id": doc_id,
@@ -235,9 +206,12 @@ def load_json_items():
                 "Flagged": data.get("Flagged", "false"),
                 "Approved": data.get("Approved", ""),
                 "Modified": raw.get("modified", False),
-                "Missed Photo": "YES" if missing_photo else "NO",
-                "Missing List": missing_friendly,
-                "Photos Summary": f"{3 - len(missing_tags)}/3",
+
+                # ✅/❌ and fraction
+                "Missed Photo": "NO" if pass_ok else "YES",
+                "Photos Summary": fraction,
+                "Missing List": missing_list,
+
                 **data
             })
         except Exception as e:
@@ -296,10 +270,11 @@ def review(doc_id):
         loaded = json.load(f)
 
     data = loaded.get("structured_data", {}) or {}
-
-    for k in ["Description","UBC Asset Tag","Branch Panel","Ampere","Supply From","Volts","Location",
-              "Attribute","Approved","Flagged"]:
-        data.setdefault(k, "" if k not in ("Flagged",) else "false")
+    keep_blank = ["UBC Asset Tag","Branch Panel","Ampere","Supply From","Volts","Location",
+                  "Attribute","Approved"]
+    for k in keep_blank:
+        data.setdefault(k, "")
+    data.setdefault("Flagged", "false")
 
     if not (data.get("Attribute") or "").strip():
         default_attr = _fetch_attribute_default_for_code("Electrical")
@@ -308,12 +283,13 @@ def review(doc_id):
 
     data["Description"] = _desc_from_ubc_or_branch(data.get("UBC Asset Tag"), data.get("Branch Panel"))
 
+    # Thumbnails
     images = {}
     for tag in SEQ_SHOW:
         filename = find_image(qr, building, tag)
         images[tag] = {"exists": bool(filename), "url": url_for('serve_image', filename=filename) if filename else None}
 
-    attribute_options = get_attribute_options()
+    attribute_options = []  # dropdown not used in dashboard version, safe to leave empty
 
     return render_template(
         "review.html",
@@ -329,10 +305,6 @@ def review(doc_id):
 
 @app.route("/review/<doc_id>", methods=["POST"])
 def save_review(doc_id):
-    """
-    Salva JSON + sincroniza linha em sdi_dataset_EL (UPDATE→INSERT).
-    No DB, Approved é gravado como '1' se JSON == 'True', senão ''.
-    """
     json_path = os.path.join(JSON_DIR, f"{doc_id}.json")
     if not os.path.exists(json_path):
         return "Not found", 404
@@ -351,10 +323,11 @@ def save_review(doc_id):
         structured = {}
         json_data["structured_data"] = structured
 
-    # Garantir chaves
-    for k in ["Description","UBC Asset Tag","Branch Panel","Ampere","Supply From","Volts","Location",
-              "Attribute","Approved","Flagged"]:
-        structured.setdefault(k, "" if k not in ("Flagged",) else "false")
+    keep_blank = ["UBC Asset Tag","Branch Panel","Ampere","Supply From","Volts","Location",
+                  "Attribute","Approved"]
+    for k in keep_blank:
+        structured.setdefault(k, "")
+    structured.setdefault("Flagged", "false")
 
     # Flagged
     new_flagged = "true" if request.form.get("Flagged") == "on" else "false"
@@ -362,7 +335,7 @@ def save_review(doc_id):
         json_data["modified"] = True
     structured["Flagged"] = new_flagged
 
-    # Atualiza campos enviados (exceto derivados Approved/Description)
+    # Update user-editable fields (skip derived)
     skip_fields = {"Flagged","Description","Approved"}
     for field in list(structured.keys()):
         if field in skip_fields:
@@ -372,7 +345,7 @@ def save_review(doc_id):
             json_data["modified"] = True
         structured[field] = form_value
 
-    # Captura novos campos (se surgirem)
+    # New fields
     for field, form_value in request.form.items():
         if field in {"Flagged","action","Description","dashboard_query"}:
             continue
@@ -380,20 +353,18 @@ def save_review(doc_id):
             structured[field] = form_value
             json_data["modified"] = True
 
-    # Recalcula Description
     structured["Description"] = _desc_from_ubc_or_branch(structured.get("UBC Asset Tag"), structured.get("Branch Panel"))
 
-    # Persiste JSON
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(json_data, f, ensure_ascii=False, indent=4)
 
-    # === SYNC DB: UPDATE→INSERT (Approved: 'True' -> '1') ===
+    # Sync to DB
     try:
         _sync_db_from_structured(qr, building, structured)
     except Exception as e:
-        print(f"⚠️ Falha ao sincronizar DB (save_review): {e}")
+        print(f"⚠️ DB sync failed (save_review): {e}")
 
-    # Navegação
+    # Navigation
     all_files = sorted(
         f for f in os.listdir(JSON_DIR)
         if f.endswith(".json") and not f.endswith("_raw_ocr.json") and JSON_NAME_RE.match(f)
@@ -424,8 +395,8 @@ def save_review(doc_id):
 @app.route("/toggle_approved/<doc_id>", methods=["POST"])
 def toggle_approved(doc_id):
     """
-    Alterna Approved no JSON e sincroniza o mesmo valor na sdi_dataset_EL (UPDATE→INSERT).
-    No DB, Approved é gravado como '1' se JSON == 'True', senão ''.
+    Toggle Approved in JSON and sync to sdi_dataset_EL.
+    DB stores '1' if JSON == 'True', else ''.
     """
     json_path = os.path.join(JSON_DIR, f"{doc_id}.json")
     if not os.path.exists(json_path):
@@ -451,15 +422,13 @@ def toggle_approved(doc_id):
         structured["Approved"] = new_val
         json_data["structured_data"] = structured
 
-        # Persiste JSON
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(json_data, f, ensure_ascii=False, indent=4)
 
-        # === SYNC DB: UPDATE→INSERT (Approved: 'True' -> '1') ===
         try:
             _sync_db_from_structured(qr, building, structured)
         except Exception as e:
-            print(f"⚠️ Falha ao sincronizar DB (toggle_approved): {e}")
+            print(f"⚠️ DB sync failed (toggle_approved): {e}")
 
         return jsonify({"success": True, "new_value": structured["Approved"]})
     except Exception as e:
