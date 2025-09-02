@@ -1,0 +1,6 @@
+# Core web framework
+Flask>=3.0,<3.1
+
+# Optional (uncomment if you want to run via gunicorn or load .env files)
+# gunicorn>=21.2,<22
+# python-dotenv>=1.0,<2

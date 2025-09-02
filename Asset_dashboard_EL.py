@@ -2,71 +2,65 @@ import os
 import json
 import re
 import sqlite3
-from pathlib import Path
 from functools import lru_cache
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify
 
-# --------------------------------------------------------------------------------------
-# Paths: project-relative by default (override with env vars if you prefer absolute ones)
-# --------------------------------------------------------------------------------------
-BASE_DIR = Path(__file__).resolve().parent
+# ---------------------------------------------------------------------
+# Flask app setup
+# ---------------------------------------------------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-TEMPLATE_DIR = BASE_DIR / "review_asset_templates"
-STATIC_DIR   = TEMPLATE_DIR / "static"
+app = Flask(
+    __name__,
+    template_folder=os.path.join(BASE_DIR, "review_asset_templates"),
+    static_folder=os.path.join(BASE_DIR, "review_asset_templates", "static")
+)
 
-# Data directories (override via environment variables if needed)
-JSON_DIR = os.getenv("JSON_DIR", str(BASE_DIR / "data" / "Output_jason_api"))
-IMG_DIR  = os.getenv("IMG_DIR",  str(BASE_DIR / "data" / "Capture_photos_upload"))
-DB_PATH  = os.getenv("DB_PATH",  str(BASE_DIR / "data" / "QR_codes.db"))
+# ---------------------------------------------------------------------
+# Paths - read from ENV or fallback to defaults
+# ---------------------------------------------------------------------
+JSON_DIR = os.environ.get("JSON_DIR", "/home/developer/Output_jason_api")
+IMG_DIR = os.environ.get("IMG_DIR", "/home/developer/Capture_photos_upload")
+DB_PATH = os.environ.get("DB_PATH", "/home/developer/asset_capture_app_dev/data/QR_codes.db")
 
-# SQLite table for dashboard sync
 SDI_TABLE = "sdi_dataset_EL"
 
-# Attribute defaults source
-ATTRIBUTE_TABLE    = "Attribute"
+# Dropdown source defaults
+ATTRIBUTE_TABLE = "Attribute"
 ATTRIBUTE_CODE_COL = "Code"       # filter by 'Electrical'
-ATTRIBUTE_VAL_COL  = "Attribute"  # default value to use
+ATTRIBUTE_VAL_COL = "Attribute"   # default value to use
 
 VALID_IMAGE_EXTS = ['.jpg', '.JPG', '.jpeg', '.JPEG', '.png', '.PNG']
 
-# ---------- PHOTO RULES ----------
-# Count fraction over all 3; pass requires -1 and -2
-ALL_SHOW  = ['-0', '-1', '-2']         # -0 Asset Plate, -1 Asset Tag, -2 Main Asset
-REQUIRED  = ['-1', '-2']               # required for "pass"
-SEQ_SHOW  = ALL_SHOW[:]                # thumbs to display
+# ---------------------------------------------------------------------
+# Photo rules
+# ---------------------------------------------------------------------
+ALL_SHOW = ['-0', '-1', '-2']  # -0 = Asset Plate, -1 = UBC Tag, -2 = Main Asset
+REQUIRED = ['-1', '-2']        # Required to pass validation
+SEQ_SHOW = ALL_SHOW[:]         # Thumbnails to display
 
 # JSON filename pattern: "<QR>_EL_<Building>.json"
 JSON_NAME_RE = re.compile(r"^(\d+)_EL_(\d+(?:-\d+)?)\.json$")
 
-# --------------------------------------------------------------------------------------
-# Flask app
-# --------------------------------------------------------------------------------------
-app = Flask(
-    __name__,
-    template_folder=str(TEMPLATE_DIR),
-    static_folder=str(STATIC_DIR),
-)
 
-# --------------------------------------------------------------------------------------
-# Helpers
-# --------------------------------------------------------------------------------------
 def find_image(qr: str, building: str, seq_tag: str):
     """Find image by pattern: '<QR> <Building> EL - <seq>.<ext>'."""
     seq = seq_tag.replace('-', '').strip()
     base = f"{qr} {building} EL - {seq}"
     for ext in VALID_IMAGE_EXTS:
-        candidate = Path(IMG_DIR) / f"{base}{ext}"
-        if candidate.exists():
-            return candidate.name
+        candidate = os.path.join(IMG_DIR, base + ext)
+        if os.path.exists(candidate):
+            return os.path.basename(candidate)
     return None
 
 
 @lru_cache(maxsize=1)
 def _connectable():
-    return Path(DB_PATH).exists()
+    return os.path.exists(DB_PATH)
 
 
 def _fetch_attribute_default_for_code(code_value: str) -> str:
+    """Fetch default Attribute value for a given code."""
     if not _connectable():
         return ""
     try:
@@ -99,13 +93,13 @@ def _db_upsert_el_row(conn, row: dict):
     Works without PK/UNIQUE.
     """
     all_cols = [
-        "QR Code","Building","Description","UBC Asset Tag","Branch Panel","Ampere",
-        "Supply From","Volts","Location","Asset Group","Attribute","Approved"
+        "QR Code", "Building", "Description", "UBC Asset Tag", "Branch Panel", "Ampere",
+        "Supply From", "Volts", "Location", "Asset Group", "Attribute", "Approved"
     ]
     existing = _db_existing_cols(conn)
 
-    # UPDATE
-    set_cols = [c for c in all_cols if c in existing and c not in ("QR Code","Building")]
+    # UPDATE first
+    set_cols = [c for c in all_cols if c in existing and c not in ("QR Code", "Building")]
     if set_cols:
         set_part = ", ".join([f'"{c}"=?' for c in set_cols])
         sql_upd = f'''
@@ -113,12 +107,12 @@ def _db_upsert_el_row(conn, row: dict):
                SET {set_part}
              WHERE "QR Code"=? AND "Building"=?
         '''
-        params_upd = [row.get(c, "") for c in set_cols] + [row.get("QR Code",""), row.get("Building","")]
+        params_upd = [row.get(c, "") for c in set_cols] + [row.get("QR Code", ""), row.get("Building", "")]
         cur = conn.execute(sql_upd, params_upd)
         if cur.rowcount and cur.rowcount > 0:
             return "updated"
 
-    # INSERT
+    # INSERT if UPDATE didn't happen
     ins_cols = [c for c in all_cols if c in existing]
     placeholders = ",".join(["?"] * len(ins_cols))
     sql_ins = f'''
@@ -167,10 +161,6 @@ def _sync_db_from_structured(qr: str, building: str, sd: dict):
 def load_json_items():
     items = []
 
-    json_root = Path(JSON_DIR)
-    if not json_root.exists():
-        print(f"⚠️ JSON_DIR does not exist: {json_root}")
-
     for filename in os.listdir(JSON_DIR):
         if not filename.endswith(".json") or filename.endswith("_raw_ocr.json"):
             continue
@@ -183,7 +173,7 @@ def load_json_items():
         doc_id = filename[:-5]  # strip ".json"
 
         try:
-            with open(json_root / filename, 'r', encoding='utf-8') as f:
+            with open(os.path.join(JSON_DIR, filename), 'r', encoding='utf-8') as f:
                 raw = json.load(f)
 
             data = raw.get("structured_data") or {}
@@ -192,13 +182,13 @@ def load_json_items():
                 continue
 
             # Ensure keys
-            keep_blank = ["UBC Asset Tag","Branch Panel","Ampere","Supply From","Volts","Location",
-                          "Attribute","Approved"]
+            keep_blank = ["UBC Asset Tag", "Branch Panel", "Ampere", "Supply From", "Volts", "Location",
+                          "Attribute", "Approved"]
             for k in keep_blank:
                 data.setdefault(k, "")
             data.setdefault("Flagged", "false")
 
-            # default Attribute for Electrical
+            # Default Attribute
             if not (data.get("Attribute") or "").strip():
                 default_attr = _fetch_attribute_default_for_code("Electrical")
                 if default_attr:
@@ -207,13 +197,13 @@ def load_json_items():
             # Derived Description
             data["Description"] = _desc_from_ubc_or_branch(data.get("UBC Asset Tag"), data.get("Branch Panel"))
 
-            # ---- Photo logic (required: -1 and -2) ----
+            # ---- Photo logic ----
             present_map = {tag: bool(find_image(qr, building, tag)) for tag in ALL_SHOW}
             pass_ok = all(present_map.get(tag, False) for tag in REQUIRED)
             present_all = sum(1 for tag in ALL_SHOW if present_map.get(tag, False))
             fraction = f"{present_all}/3"
 
-            friendly_map = {'-0': 'Asset Plate', '-1': 'Asset Tag', '-2': 'Main Asset'}
+            friendly_map = {'-0': 'Asset Plate', '-1': 'UBC Asset Tag', '-2': 'Panel Schedule'}
             missing_list = ", ".join(friendly_map[t] for t in ALL_SHOW if not present_map.get(t, False))
 
             items.append({
@@ -224,12 +214,9 @@ def load_json_items():
                 "Flagged": data.get("Flagged", "false"),
                 "Approved": data.get("Approved", ""),
                 "Modified": raw.get("modified", False),
-
-                # ✅/❌ and fraction
                 "Missed Photo": "NO" if pass_ok else "YES",
                 "Photos Summary": fraction,
                 "Missing List": missing_list,
-
                 **data
             })
         except Exception as e:
@@ -237,6 +224,9 @@ def load_json_items():
     return items
 
 
+# ---------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------
 @app.route("/")
 def index():
     flagged_filter = request.args.get("flagged")
@@ -275,8 +265,8 @@ def index():
 
 @app.route("/review/<doc_id>")
 def review(doc_id):
-    json_path = Path(JSON_DIR) / f"{doc_id}.json"
-    if not json_path.exists():
+    json_path = os.path.join(JSON_DIR, f"{doc_id}.json")
+    if not os.path.exists(json_path):
         return "Not found", 404
 
     m = JSON_NAME_RE.match(f"{doc_id}.json")
@@ -288,8 +278,8 @@ def review(doc_id):
         loaded = json.load(f)
 
     data = loaded.get("structured_data", {}) or {}
-    keep_blank = ["UBC Asset Tag","Branch Panel","Ampere","Supply From","Volts","Location",
-                  "Attribute","Approved"]
+    keep_blank = ["UBC Asset Tag", "Branch Panel", "Ampere", "Supply From", "Volts", "Location",
+                  "Attribute", "Approved"]
     for k in keep_blank:
         data.setdefault(k, "")
     data.setdefault("Flagged", "false")
@@ -307,7 +297,7 @@ def review(doc_id):
         filename = find_image(qr, building, tag)
         images[tag] = {"exists": bool(filename), "url": url_for('serve_image', filename=filename) if filename else None}
 
-    attribute_options = []  # dropdown not used in dashboard version, safe to leave empty
+    attribute_options = []
 
     return render_template(
         "review.html",
@@ -323,8 +313,8 @@ def review(doc_id):
 
 @app.route("/review/<doc_id>", methods=["POST"])
 def save_review(doc_id):
-    json_path = Path(JSON_DIR) / f"{doc_id}.json"
-    if not json_path.exists():
+    json_path = os.path.join(JSON_DIR, f"{doc_id}.json")
+    if not os.path.exists(json_path):
         return "Not found", 404
 
     m = JSON_NAME_RE.match(f"{doc_id}.json")
@@ -341,20 +331,20 @@ def save_review(doc_id):
         structured = {}
         json_data["structured_data"] = structured
 
-    keep_blank = ["UBC Asset Tag","Branch Panel","Ampere","Supply From","Volts","Location",
-                  "Attribute","Approved"]
+    keep_blank = ["UBC Asset Tag", "Branch Panel", "Ampere", "Supply From", "Volts", "Location",
+                  "Attribute", "Approved"]
     for k in keep_blank:
         structured.setdefault(k, "")
     structured.setdefault("Flagged", "false")
 
-    # Flagged
+    # Flagged toggle
     new_flagged = "true" if request.form.get("Flagged") == "on" else "false"
     if structured.get("Flagged", "false") != new_flagged:
         json_data["modified"] = True
     structured["Flagged"] = new_flagged
 
-    # Update user-editable fields (skip derived)
-    skip_fields = {"Flagged","Description","Approved"}
+    # Update editable fields
+    skip_fields = {"Flagged", "Description", "Approved"}
     for field in list(structured.keys()):
         if field in skip_fields:
             continue
@@ -365,7 +355,7 @@ def save_review(doc_id):
 
     # New fields
     for field, form_value in request.form.items():
-        if field in {"Flagged","action","Description","dashboard_query"}:
+        if field in {"Flagged", "action", "Description", "dashboard_query"}:
             continue
         if field not in structured:
             structured[field] = form_value
@@ -376,7 +366,7 @@ def save_review(doc_id):
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(json_data, f, ensure_ascii=False, indent=4)
 
-    # Sync to DB
+    # Sync DB
     try:
         _sync_db_from_structured(qr, building, structured)
     except Exception as e:
@@ -416,8 +406,8 @@ def toggle_approved(doc_id):
     Toggle Approved in JSON and sync to sdi_dataset_EL.
     DB stores '1' if JSON == 'True', else ''.
     """
-    json_path = Path(JSON_DIR) / f"{doc_id}.json"
-    if not json_path.exists():
+    json_path = os.path.join(JSON_DIR, f"{doc_id}.json")
+    if not os.path.exists(json_path):
         return jsonify({"success": False, "error": "Not found"}), 404
 
     m = JSON_NAME_RE.match(f"{doc_id}.json")
@@ -459,9 +449,4 @@ def serve_image(filename):
 
 
 if __name__ == "__main__":
-    print(f"Templates: {TEMPLATE_DIR}")
-    print(f"Static   : {STATIC_DIR}")
-    print(f"JSON_DIR : {JSON_DIR}")
-    print(f"IMG_DIR  : {IMG_DIR}")
-    print(f"DB_PATH  : {DB_PATH}")
     app.run(host='0.0.0.0', port=5000, debug=True)
