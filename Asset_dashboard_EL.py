@@ -2,24 +2,27 @@ import os
 import json
 import re
 import sqlite3
+from pathlib import Path
 from functools import lru_cache
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify
 
-app = Flask(
-    __name__,
-    template_folder=r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\Git_control\Asset_plate_review_EL\review_asset_templates",
-    static_folder=r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\Git_control\Asset_plate_review_EL\review_asset_templates\static"
-)
+# --------------------------------------------------------------------------------------
+# Paths: project-relative by default (override with env vars if you prefer absolute ones)
+# --------------------------------------------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent
 
-# --- Paths ---
-JSON_DIR = r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\Git_control\API Picture Test\Output_jason_api"
-IMG_DIR  = r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\Git_control\API Picture Test"
+TEMPLATE_DIR = BASE_DIR / "review_asset_templates"
+STATIC_DIR   = TEMPLATE_DIR / "static"
 
-# --- SQLite DB ---
-DB_PATH   = r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\Git_control\API Picture Test\QR_codes.db"
+# Data directories (override via environment variables if needed)
+JSON_DIR = os.getenv("JSON_DIR", str(BASE_DIR / "data" / "Output_jason_api"))
+IMG_DIR  = os.getenv("IMG_DIR",  str(BASE_DIR / "data" / "Capture_photos_upload"))
+DB_PATH  = os.getenv("DB_PATH",  str(BASE_DIR / "data" / "QR_codes.db"))
+
+# SQLite table for dashboard sync
 SDI_TABLE = "sdi_dataset_EL"
 
-# Dropdown sources (Attribute default)
+# Attribute defaults source
 ATTRIBUTE_TABLE    = "Attribute"
 ATTRIBUTE_CODE_COL = "Code"       # filter by 'Electrical'
 ATTRIBUTE_VAL_COL  = "Attribute"  # default value to use
@@ -35,21 +38,32 @@ SEQ_SHOW  = ALL_SHOW[:]                # thumbs to display
 # JSON filename pattern: "<QR>_EL_<Building>.json"
 JSON_NAME_RE = re.compile(r"^(\d+)_EL_(\d+(?:-\d+)?)\.json$")
 
+# --------------------------------------------------------------------------------------
+# Flask app
+# --------------------------------------------------------------------------------------
+app = Flask(
+    __name__,
+    template_folder=str(TEMPLATE_DIR),
+    static_folder=str(STATIC_DIR),
+)
 
+# --------------------------------------------------------------------------------------
+# Helpers
+# --------------------------------------------------------------------------------------
 def find_image(qr: str, building: str, seq_tag: str):
     """Find image by pattern: '<QR> <Building> EL - <seq>.<ext>'."""
     seq = seq_tag.replace('-', '').strip()
     base = f"{qr} {building} EL - {seq}"
     for ext in VALID_IMAGE_EXTS:
-        candidate = os.path.join(IMG_DIR, base + ext)
-        if os.path.exists(candidate):
-            return os.path.basename(candidate)
+        candidate = Path(IMG_DIR) / f"{base}{ext}"
+        if candidate.exists():
+            return candidate.name
     return None
 
 
 @lru_cache(maxsize=1)
 def _connectable():
-    return os.path.exists(DB_PATH)
+    return Path(DB_PATH).exists()
 
 
 def _fetch_attribute_default_for_code(code_value: str) -> str:
@@ -153,6 +167,10 @@ def _sync_db_from_structured(qr: str, building: str, sd: dict):
 def load_json_items():
     items = []
 
+    json_root = Path(JSON_DIR)
+    if not json_root.exists():
+        print(f"⚠️ JSON_DIR does not exist: {json_root}")
+
     for filename in os.listdir(JSON_DIR):
         if not filename.endswith(".json") or filename.endswith("_raw_ocr.json"):
             continue
@@ -165,7 +183,7 @@ def load_json_items():
         doc_id = filename[:-5]  # strip ".json"
 
         try:
-            with open(os.path.join(JSON_DIR, filename), 'r', encoding='utf-8') as f:
+            with open(json_root / filename, 'r', encoding='utf-8') as f:
                 raw = json.load(f)
 
             data = raw.get("structured_data") or {}
@@ -189,7 +207,7 @@ def load_json_items():
             # Derived Description
             data["Description"] = _desc_from_ubc_or_branch(data.get("UBC Asset Tag"), data.get("Branch Panel"))
 
-            # ---- Photo logic (your rule) ----
+            # ---- Photo logic (required: -1 and -2) ----
             present_map = {tag: bool(find_image(qr, building, tag)) for tag in ALL_SHOW}
             pass_ok = all(present_map.get(tag, False) for tag in REQUIRED)
             present_all = sum(1 for tag in ALL_SHOW if present_map.get(tag, False))
@@ -257,8 +275,8 @@ def index():
 
 @app.route("/review/<doc_id>")
 def review(doc_id):
-    json_path = os.path.join(JSON_DIR, f"{doc_id}.json")
-    if not os.path.exists(json_path):
+    json_path = Path(JSON_DIR) / f"{doc_id}.json"
+    if not json_path.exists():
         return "Not found", 404
 
     m = JSON_NAME_RE.match(f"{doc_id}.json")
@@ -305,8 +323,8 @@ def review(doc_id):
 
 @app.route("/review/<doc_id>", methods=["POST"])
 def save_review(doc_id):
-    json_path = os.path.join(JSON_DIR, f"{doc_id}.json")
-    if not os.path.exists(json_path):
+    json_path = Path(JSON_DIR) / f"{doc_id}.json"
+    if not json_path.exists():
         return "Not found", 404
 
     m = JSON_NAME_RE.match(f"{doc_id}.json")
@@ -398,8 +416,8 @@ def toggle_approved(doc_id):
     Toggle Approved in JSON and sync to sdi_dataset_EL.
     DB stores '1' if JSON == 'True', else ''.
     """
-    json_path = os.path.join(JSON_DIR, f"{doc_id}.json")
-    if not os.path.exists(json_path):
+    json_path = Path(JSON_DIR) / f"{doc_id}.json"
+    if not json_path.exists():
         return jsonify({"success": False, "error": "Not found"}), 404
 
     m = JSON_NAME_RE.match(f"{doc_id}.json")
@@ -441,4 +459,9 @@ def serve_image(filename):
 
 
 if __name__ == "__main__":
+    print(f"Templates: {TEMPLATE_DIR}")
+    print(f"Static   : {STATIC_DIR}")
+    print(f"JSON_DIR : {JSON_DIR}")
+    print(f"IMG_DIR  : {IMG_DIR}")
+    print(f"DB_PATH  : {DB_PATH}")
     app.run(host='0.0.0.0', port=5000, debug=True)
