@@ -1,269 +1,293 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>{{ title or 'Asset Review Dashboard - Electrical' }}</title>
-    <meta charset="utf-8">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
-    <style>
-        .filters-bar .form-select { min-width: 220px; }
-        .filters-bar .badge { font-weight: 500; }
-        td.approved-cell { cursor: pointer; }
-    </style>
+  <meta charset="utf-8">
+  <title>{{ title or 'Asset Review Dashboard - Electrical' }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- Bootstrap + DataTables CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+
+  <style>
+    .filters-bar .form-select { min-width: 220px; }
+    .filters-bar .badge { font-weight: 500; }
+    td.approved-cell { cursor: pointer; user-select: none; }
+    td.approved-cell:focus { outline: 2px solid #0d6efd33; }
+  </style>
 </head>
 <body class="container-fluid py-4">
 
-    <div class="d-flex justify-content-start align-items-center mb-2">
-        <a href="{{ url_for('index') }}">
-            <img src="{{ url_for('static', filename='ubc-logo.png') }}" alt="UBC Logo" style="height: 72px; margin-right: 16px;">
-        </a>
-        <a href="{{ url_for('index') }}" style="text-decoration: none; color: black;">
-            <h1 class="m-0">{{ title or 'Asset Review Dashboard - Electrical' }}</h1>
-        </a>
+  <!-- Header -->
+  <div class="d-flex justify-content-start align-items-center mb-2">
+    <a href="{{ url_for('index') }}">
+      <img src="{{ url_for('static', filename='ubc-logo.png') }}" alt="UBC Logo" style="height:72px;margin-right:16px;">
+    </a>
+    <a href="{{ url_for('index') }}" style="text-decoration:none;color:black;">
+      <h1 class="m-0">{{ title or 'Asset Review Dashboard - Electrical' }}</h1>
+    </a>
+  </div>
+
+  <!-- Filters / chips -->
+  <div class="filters-bar row g-3 align-items-center mb-3">
+    <div class="col-auto">
+      <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm px-3 {% if not flagged_filter and not modified_filter and not missed_filter %}active{% endif %}">All</a>
+      <a href="{{ url_for('index', flagged='true') }}" class="btn btn-outline-danger btn-sm px-3 {% if flagged_filter == 'true' %}active{% endif %}">
+        🚩 Flagged Only <span class="badge bg-light text-dark" style="min-width:40px;">{{ count_flagged }}</span>
+      </a>
+      <a href="{{ url_for('index', modified='true') }}" class="btn btn-outline-warning btn-sm px-3 {% if modified_filter == 'true' %}active{% endif %}">
+        ✏️ Modified Only <span class="badge bg-light text-dark" style="min-width:40px;">{{ count_modified }}</span>
+      </a>
+      <a href="{{ url_for('index', missed='true') }}" class="btn btn-outline-dark btn-sm px-3 {% if missed_filter == 'true' %}active{% endif %}">
+        🖼️ Missed Photo Only <span class="badge bg-light text-dark" style="min-width:40px;">{{ count_missed }}</span>
+      </a>
     </div>
 
-    <div class="filters-bar row g-3 align-items-center mb-3">
-        <div class="col-auto">
-            <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm px-3 {% if not flagged_filter and not modified_filter and not missed_filter %}active{% endif %}">All</a>
-            <a href="{{ url_for('index', flagged='true') }}" class="btn btn-outline-danger btn-sm px-3 {% if flagged_filter == 'true' %}active{% endif %}">
-                🚩 Flagged Only <span class="badge bg-light text-dark" style="min-width: 40px;">{{ count_flagged }}</span>
-            </a>
-            <a href="{{ url_for('index', modified='true') }}" class="btn btn-outline-warning btn-sm px-3 {% if modified_filter == 'true' %}active{% endif %}">
-                ✏️ Modified Only <span class="badge bg-light text-dark" style="min-width: 40px;">{{ count_modified }}</span>
-            </a>
-            <a href="{{ url_for('index', missed='true') }}" class="btn btn-outline-dark btn-sm px-3 {% if missed_filter == 'true' %}active{% endif %}">
-                ❌ Missed Photo Only <span class="badge bg-light text-dark" style="min-width: 40px;">{{ count_missed }}</span>
-            </a>
+    <div class="col-md-auto ms-auto">
+      <div class="d-flex gap-2">
+        <div>
+          <label for="filter-building" class="form-label mb-1 small text-muted">Filter by Building</label>
+          <select id="filter-building" class="form-select form-select-sm">
+            <option value="">All Buildings</option>
+          </select>
         </div>
-
-        <div class="col-md-auto ms-auto">
-            <div class="d-flex gap-2">
-                <div>
-                    <label for="filter-building" class="form-label mb-1 small text-muted">Filter by Building</label>
-                    <select id="filter-building" class="form-select form-select-sm">
-                        <option value="">All Buildings</option>
-                    </select>
-                </div>
-                <div>
-                    <label for="filter-approved" class="form-label mb-1 small text-muted">Filter by Approved</label>
-                    <select id="filter-approved" class="form-select form-select-sm">
-                        <option value="">All</option>
-                        <option value="True">Approved Only</option>
-                        <option value="False">Not Approved Only</option>
-                    </select>
-                </div>
-            </div>
+        <div>
+          <label for="filter-approved" class="form-label mb-1 small text-muted">Filter by Approved</label>
+          <select id="filter-approved" class="form-select form-select-sm">
+            <option value="">All</option>
+            <option value="True">Approved Only</option>
+            <option value="False">Not Approved Only</option>
+          </select>
         </div>
+      </div>
     </div>
+  </div>
 
-    <table id="assetTable" class="table table-striped table-bordered align-middle text-center w-100">
-        <thead class="table-dark">
-            <tr>
-                <th class="text-center">QR Code</th>
-                <th class="text-center">Building</th>
+  <!-- Table -->
+  <table id="assetTable" class="table table-striped table-bordered align-middle text-center w-100">
+    <thead class="table-dark">
+      <tr>
+        <th class="text-center">QR Code</th>
+        <th class="text-center">Building</th>
+        <th class="text-start">UBC Asset Tag</th>
+        <th class="text-start">Ampere</th>
+        <th class="text-start">Supply From</th>
+        <th class="text-start">Volts</th>
+        <th class="text-start">Location</th>
+        <th class="text-start">Attribute</th>
+        <th class="text-start">Asset Group</th>
+        <th class="text-start">Description</th>
+        <th class="text-center">Approved</th>
+        <th class="text-center">Flagged</th>
+        <th class="text-center">Modified</th>
+        <th class="text-center">Missed Photo</th>
+        <th class="text-center">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for item in data %}
+      {% set approved_bool = 'True' if item['Approved'] == 'True' else 'False' %}
+      <tr>
+        <td>{{ item.qr_code }}</td>
+        <td>{{ item.building }}</td>
 
-                <th class="text-start">UBC Asset Tag</th>
-                <th class="text-start">Branch Panel</th>
-                <th class="text-start">Ampere</th>
-                <th class="text-start">Supply From</th>
-                <th class="text-start">Volts</th>
-                <th class="text-start">Location</th>
-                <th class="text-start">Attribute</th>
-                <th class="text-start">Description</th>
+        <td class="text-start">{{ item['UBC Asset Tag'] }}</td>
+        <td class="text-start">{{ item['Ampere'] }}</td>
+        <td class="text-start">{{ item['Supply From'] }}</td>
+        <td class="text-start">{{ item['Volts'] }}</td>
+        <td class="text-start">{{ item['Location'] }}</td>
+        <td class="text-start">{{ item['Attribute'] }}</td>
+        <td class="text-start">{{ item['Asset Group'] }}</td>
+        <td class="text-start">{{ item['Description'] }}</td>
 
-                <th class="text-center">Approved</th>
-                <th class="text-center">Flagged</th>
-                <th class="text-center">Modified</th>
-                <th class="text-center">Missed Photo</th>
-                <th class="text-center">Action</th>
-            </tr>
-        </thead>
-        <tbody>
-        {% for item in data %}
-            <tr>
-                <td>{{ item.qr_code }}</td>
-                <td>{{ item.building }}</td>
+        <!-- Approved (click to toggle) -->
+        <td class="approved-cell" tabindex="0" role="button"
+            data-docid="{{ item.doc_id }}"
+            data-search="{{ approved_bool }}"
+            title="Click to toggle Approved">
+          {% if item['Approved'] == 'True' %}✅{% else %}☐{% endif %}
+        </td>
 
-                <td class="text-start">{{ item['UBC Asset Tag'] }}</td>
-                <td class="text-start">{{ item['Branch Panel'] }}</td>
-                <td class="text-start">{{ item['Ampere'] }}</td>
-                <td class="text-start">{{ item['Supply From'] }}</td>
-                <td class="text-start">{{ item['Volts'] }}</td>
-                <td class="text-start">{{ item['Location'] }}</td>
-                <td class="text-start">{{ item['Attribute'] }}</td>
-                <td class="text-start">{{ item['Description'] }}</td>
+        <!-- Flagged -->
+        <td>
+          {% if item.Flagged == 'true' %}
+            🚩
+          {% else %}
+            &mdash;
+          {% endif %}
+        </td>
 
-                {% set approved_bool = 'True' if item['Approved'] == 'True' else 'False' %}
-                <td class="approved-cell"
-                    data-docid="{{ item.doc_id }}"
-                    data-search="{{ approved_bool }}">
-                    {% if item['Approved'] == 'True' %}✅{% else %}{% endif %}
-                </td>
+        <!-- Modified -->
+        <td>
+          {% if item.Modified %}
+            ✏️
+          {% else %}
+            &mdash;
+          {% endif %}
+        </td>
 
-                <td>{% if item.Flagged == 'true' %}🚩{% else %}&mdash;{% endif %}</td>
-                <td>{% if item.Modified %}✏️{% else %}&mdash;{% endif %}</td>
-                <td>
-                  {% if item['Missed Photo'] == 'YES' %}
-                    <span class="text-danger"
-                          data-bs-toggle="tooltip"
-                          data-bs-placement="top"
-                          title="Missing: {{ item['Missing List'] }}">
-                      ❌ {{ item['Photos Summary'] }}
-                    </span>
-                  {% else %}
-                    <span class="text-success"
-                          data-bs-toggle="tooltip"
-                          data-bs-placement="top"
-                          title="All required present">
-                      ✅ {{ item['Photos Summary'] }}
-                    </span>
-                  {% endif %}
-                </td>
-                <td>
-                    <a class="btn btn-primary btn-sm" href="{{ url_for('review', doc_id=item.doc_id) }}">Review</a>
-                </td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
+        <!-- Missed Photo -->
+        <td>
+          {% if item['Missed Photo'] == 'YES' %}
+            <span class="text-danger" data-bs-toggle="tooltip" data-bs-placement="top"
+                  title="Missing: {{ item['Missing List'] }}">
+              ❌ {{ item['Photos Summary'] }}
+            </span>
+          {% else %}
+            <span class="text-success" data-bs-toggle="tooltip" data-bs-placement="top"
+                  title="All required present">
+              ✅ {{ item['Photos Summary'] }}
+            </span>
+          {% endif %}
+        </td>
 
-    <footer class="text-center mt-5 pt-4 border-top text-muted small">
-        © 2025 University of British Columbia - Maintenance Planning Department. All rights reserved.
-    </footer>
+        <td>
+          <a class="btn btn-primary btn-sm" href="{{ url_for('review', doc_id=item.doc_id) }}">Review</a>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
 
-    <!-- jQuery, Bootstrap, DataTables -->
-    <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+  <footer class="text-center mt-5 pt-4 border-top text-muted small">
+    &copy; 2025 University of British Columbia - Maintenance Planning Department. All rights reserved.
+  </footer>
 
-    <script>
-      try { localStorage.setItem('dashboardQuery', window.location.search || ''); } catch (e) {}
+  <!-- JS libs -->
+  <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
 
-      document.addEventListener('DOMContentLoaded', function () {
-        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
-        tooltipTriggerList.map(function (el) { return new bootstrap.Tooltip(el) })
+  <script>
+    // Remember how the dashboard was filtered, so the Review page can return you here.
+    try { localStorage.setItem('dashboardQuery', window.location.search || ''); } catch (e) {}
+
+    // Enable tooltips
+    document.addEventListener('DOMContentLoaded', function () {
+      var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+      tooltipTriggerList.map(function (el) { return new bootstrap.Tooltip(el); });
+    });
+
+    $(function () {
+      // Column indexes (note: Asset Group before Description)
+      var colQR = 0,
+          colBuilding = 1,
+          colUBC = 2,
+          colAmpere = 3,
+          colSupply = 4,
+          colVolts = 5,
+          colLocation = 6,
+          colAttribute = 7,
+          colAssetGroup = 8,
+          colDescription = 9,
+          colApproved = 10; // Flagged=11, Modified=12, Missed Photo=13, Action=14
+
+      var table = $('#assetTable').DataTable({
+        pageLength: 15,
+        order: [],
+        stateSave: true,
+        stateDuration: -1,
+        columnDefs: [
+          { orderable: true, targets: [colQR, colBuilding, colUBC, colAmpere, colSupply, colVolts, colLocation, colAttribute, colAssetGroup, colDescription] },
+          { orderable: false, targets: [colApproved] }
+        ],
+        createdRow: function (row) {
+          // Ensure the "Approved" cell keeps a searchable state
+          var $approvedCell = $('td', row).eq(colApproved);
+          var val = $approvedCell.attr('data-search');
+          if (val) $approvedCell.attr('data-search', val);
+        }
       });
 
-      $(document).ready(function () {
-          var colQR = 0,
-              colBuilding = 1,
+      // Build the Building filter list from visible rows
+      function populateBuilding() {
+        var select = $('#filter-building');
+        select.find('option:not(:first)').remove();
+        var uniques = {};
+        table.column(colBuilding, { search: 'applied' }).data().each(function (val) {
+          val = (val || '').toString().trim();
+          if (val) uniques[val] = true;
+        });
+        Object.keys(uniques).sort().forEach(function (v) {
+          select.append(new Option(v, v));
+        });
+      }
+      populateBuilding();
 
-              colUBC = 2,
-              colBranch = 3,
-              colAmpere = 4,
-              colSupply = 5,
-              colVolts = 6,
-              colLocation = 7,
-              colAttribute = 8,
-              colDescription = 9,
+      // Restore saved state (building / approved filters)
+      var state = table.state.loaded();
+      if (state && state.columns) {
+        var bSearch = state.columns[colBuilding]?.search?.search || '';
+        if (bSearch.startsWith('^') && bSearch.endsWith('$')) {
+          bSearch = bSearch.slice(1, -1);
+          try { bSearch = $.fn.dataTable.util.unescapeRegex(bSearch); } catch(e) {}
+        }
+        if (bSearch) $('#filter-building').val(bSearch);
 
-              colApproved = 10;
+        var aSearch = state.columns[colApproved]?.search?.search || '';
+        if (aSearch === '^True$') $('#filter-approved').val('True');
+        else if (aSearch === '^False$') $('#filter-approved').val('False');
+      }
 
-          var table = $('#assetTable').DataTable({
-              pageLength: 15,
-              order: [],
-              stateSave: true,
-              stateDuration: -1,
-              columnDefs: [
-                  { orderable: true, targets: [colQR, colBuilding, colUBC, colBranch, colAmpere, colSupply, colVolts, colLocation, colAttribute, colDescription] },
-                  { orderable: false, targets: [colApproved] }
-              ],
-              createdRow: function (row, data, dataIndex) {
-                  var $approvedCell = $('td', row).eq(colApproved);
-                  var val = $approvedCell.attr('data-search');
-                  if (val) $approvedCell.attr('data-search', val);
-              }
-          });
-
-          function populateBuilding() {
-              var select = $('#filter-building');
-              select.find('option:not(:first)').remove();
-              var uniques = {};
-              table.column(colBuilding, { search: 'applied' }).data().each(function (val) {
-                  val = (val || '').toString().trim();
-                  if (val) uniques[val] = true;
-              });
-              Object.keys(uniques).sort().forEach(function (v) {
-                  select.append(new Option(v, v));
-              });
-          }
-          populateBuilding();
-
-          var state = table.state.loaded();
-          if (state && state.columns) {
-              var bSearch = state.columns[colBuilding]?.search?.search || '';
-              if (bSearch.startsWith('^') && bSearch.endsWith('$')) {
-                  bSearch = bSearch.slice(1, -1);
-                  try { bSearch = $.fn.dataTable.util.unescapeRegex(bSearch); } catch(e) {}
-              }
-              if (bSearch) $('#filter-building').val(bSearch);
-
-              var aSearch = state.columns[colApproved]?.search?.search || '';
-              if (aSearch === '^True$') $('#filter-approved').val('True');
-              else if (aSearch === '^False$') $('#filter-approved').val('False');
-          }
-
-          table.on('draw', function () {
-              populateBuilding();
-              if ($('#filter-building').val()) $('#filter-building').val($('#filter-building').val());
-          });
-
-          $('#filter-building').on('change', function () {
-              var val = $(this).val();
-              table.column(colBuilding).search(val ? '^' + $.fn.dataTable.util.escapeRegex(val) + '$' : '', true, false).draw();
-          });
-
-          $('#filter-approved').on('change', function () {
-              var v = $(this).val();
-              if (v === 'True') {
-                  table.column(colApproved).search('^True$', true, false).draw();
-              } else if (v === 'False') {
-                  table.column(colApproved).search('^False$', true, false).draw();
-              } else {
-                  table.column(colApproved).search('', false, false).draw();
-              }
-          });
-
-          $.fn.dataTable.ext.order['dom-data-search'] = function (settings, col) {
-              return this.api().column(col, { order: 'index' }).nodes().map(function (td) {
-                  return $(td).attr('data-search') || '';
-              });
-          };
-          $.fn.dataTable.ext.search.push(function (settings, data, dataIndex, rowData, counter) {
-              var col = colApproved;
-              var search = settings.aoPreSearchCols[col].sSearch;
-              if (!search) return true;
-              var td = settings.aoData[dataIndex].anCells[col];
-              var val = $(td).attr('data-search') || '';
-              var regex = settings.aoPreSearchCols[col].bRegex ? new RegExp(search) : null;
-              if (regex) return regex.test(val);
-              return (val.indexOf(search) !== -1);
-          });
-
-          $('#assetTable').on('click', '.approved-cell', function() {
-              var cell = $(this);
-              var docId = cell.data('docid');
-
-              $.post('/toggle_approved/' + docId, function(resp) {
-                  if (resp.success) {
-                      if (resp.new_value === "True") {
-                          cell.html('✅');
-                          cell.attr('data-search', 'True');
-                      } else {
-                          cell.html('');
-                          cell.attr('data-search', 'False');
-                      }
-                      table.draw(false);
-                  } else {
-                      alert("Error: " + resp.error);
-                  }
-              }).fail(function() {
-                  alert("Failed to update Approved status.");
-              });
-          });
+      table.on('draw', function () {
+        var current = $('#filter-building').val();
+        populateBuilding();
+        if (current) $('#filter-building').val(current);
       });
-    </script>
 
+      // Filter handlers
+      $('#filter-building').on('change', function () {
+        var val = $(this).val();
+        table.column(colBuilding).search(val ? '^' + $.fn.dataTable.util.escapeRegex(val) + '$' : '', true, false).draw();
+      });
+
+      $('#filter-approved').on('change', function () {
+        var v = $(this).val();
+        if (v === 'True') {
+          table.column(colApproved).search('^True$', true, false).draw();
+        } else if (v === 'False') {
+          table.column(colApproved).search('^False$', true, false).draw();
+        } else {
+          table.column(colApproved).search('', false, false).draw();
+        }
+      });
+
+      // Custom search: read Approved state from the cell's data-search attribute
+      $.fn.dataTable.ext.search.push(function (settings, data, dataIndex) {
+        if (settings.nTable !== $('#assetTable')[0]) return true;
+        var search = settings.aoPreSearchCols[colApproved].sSearch;
+        if (!search) return true;
+        var td = settings.aoData[dataIndex].anCells[colApproved];
+        var val = $(td).attr('data-search') || '';
+        var regex = settings.aoPreSearchCols[colApproved].bRegex ? new RegExp(search) : null;
+        return regex ? regex.test(val) : (val.indexOf(search) !== -1);
+      });
+
+      // Toggle Approved (click or keyboard)
+      $('#assetTable').on('click keypress', '.approved-cell', function (e) {
+        if (e.type === 'keypress' && e.key !== ' ' && e.key !== 'Enter') return;
+        var cell = $(this);
+        var docId = cell.data('docid');
+
+        $.post('/toggle_approved/' + docId, function (resp) {
+          if (resp.success) {
+            if (resp.new_value === "True") {
+              cell.text('✅');
+              cell.attr('data-search', 'True');
+            } else {
+              cell.text('☐');
+              cell.attr('data-search', 'False');
+            }
+            table.draw(false);
+          } else {
+            alert("Error: " + resp.error);
+          }
+        }).fail(function () {
+          alert("Failed to update Approved status.");
+        });
+      });
+    });
+  </script>
 </body>
 </html>

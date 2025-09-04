@@ -15,13 +15,23 @@
     .thumbs{display:flex;gap:.75rem;margin-top:.75rem}
     .thumb{width:120px;border:1px solid #e9ecef;border-radius:.5rem;overflow:hidden;background:#fff;cursor:pointer}
     .thumb.active{outline:2px solid #0d6efd}
-    .thumb .label{font-size:.8rem;padding:.25rem .4rem;color:#6c757d;border-bottom:1px solid #eef1f4;background:#fafafa}
+    .thumb .label{
+      font-size:.68rem;     /* reduced size to fit text */
+      line-height:1.2;
+      padding:.25rem .3rem;
+      color:#6c757d;
+      border-bottom:1px solid #eef1f4;
+      background:#fafafa;
+      white-space:nowrap;
+      overflow:hidden;
+    }
     .thumb .missing{height:84px;display:flex;align-items:center;justify-content:center;background:#fde2e1;color:#a10000}
     .thumb img{width:100%;height:84px;object-fit:cover;display:block}
     .form-card{background:#fff;border:1px solid #e9ecef;border-radius:.5rem;padding:1rem}
     .field-grid{display:grid;grid-template-columns:1fr;gap:.75rem}
     .desc-hint{font-size:.75rem;color:#cc3366}
     @media (max-width:1100px){.viewer{grid-template-columns:1fr}}
+    .hidden { display: none !important; }
   </style>
 </head>
 <body class="container-fluid py-3">
@@ -46,6 +56,7 @@
 
     <form method="POST" action="{{ url_for('save_review', doc_id=doc_id) }}" class="p-3">
       <input type="hidden" name="dashboard_query" id="dashboard_query" value="">
+      <input type="hidden" name="Branch Panel" value="{{ data.get('Branch Panel','') }}">
 
       <div class="viewer">
         <!-- Left: image + controls + thumbs -->
@@ -56,59 +67,54 @@
             <img id="mainImage" src="{{ default_url if default_url else '' }}" alt="Main">
           </div>
 
-          <!-- Under picture: ONLY Back + Skip -->
           <div class="d-flex align-items-center justify-content-between mt-2">
-            <!-- left: zoom tools -->
             <div class="d-flex gap-2">
               <button type="button" class="btn btn-outline-primary btn-sm" id="zoomIn">+ Zoom</button>
               <button type="button" class="btn btn-outline-primary btn-sm" id="zoomOut">- Zoom</button>
               <button type="button" class="btn btn-outline-secondary btn-sm" id="rotate">Rotate</button>
             </div>
-            <!-- right: Back + Skip only -->
             <div class="d-flex gap-2">
               <a id="backUnderPic" href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">Back</a>
               <button type="submit" class="btn btn-outline-warning btn-sm" name="action" value="save_next">Skip</button>
             </div>
           </div>
 
-          <!-- Thumbnails (labels updated) -->
           <div class="thumbs">
-            {% for tag,label in {'-0':'Asset Plate','-1':'UBC Asset Tag','-2':'Panel Schedule'}.items() %}
+            {% for tag,label in {'-0':'Asset Plate (Optional)','-1':'UBC Asset Tag','-2':'Panel Schedule'}.items() %}
               {% set im = images.get(tag) %}
               <div class="thumb {% if default_tag == tag %}active{% endif %}" data-url="{{ im.url if im and im.exists else '' }}">
                 <div class="label">{{ label }}</div>
                 {% if im and im.exists %}
                   <img src="{{ im.url }}" alt="{{ label }}">
                 {% else %}
-                  <div class="missing">❌ Missing</div>
+                  <div class="missing">Missing</div>
                 {% endif %}
               </div>
             {% endfor %}
           </div>
         </div>
 
-        <!-- Right: form (Save buttons live here) -->
+        <!-- Right: form -->
         <div class="form-card">
           <div class="field-grid">
 
             <div>
-              <label class="form-label">Attribute</label>
-              <select class="form-select" name="Attribute">
-                <option value=""></option>
-                {% for opt in attribute_options %}
-                  <option value="{{ opt }}" {% if (data.get('Attribute') or '') == opt %}selected{% endif %}>{{ opt }}</option>
+              <label class="form-label">Asset Group</label>
+              <select class="form-select" name="Asset Group">
+                {% for opt in asset_group_options %}
+                  <option value="{{ opt }}" {% if (data.get('Asset Group') or 'Panels') == opt %}selected{% endif %}>{{ opt }}</option>
                 {% endfor %}
               </select>
             </div>
 
             <div>
-              <label class="form-label">UBC Asset Tag</label>
-              <input type="text" class="form-control" name="UBC Asset Tag" value="{{ data.get('UBC Asset Tag','') }}">
+              <label class="form-label">Attribute</label>
+              <input type="text" class="form-control" name="Attribute" value="{{ data.get('Attribute','') }}">
             </div>
 
             <div>
-              <label class="form-label">Branch Panel</label>
-              <input type="text" class="form-control" name="Branch Panel" value="{{ data.get('Branch Panel','') }}">
+              <label class="form-label">UBC Asset Tag</label>
+              <input type="text" class="form-control" name="UBC Asset Tag" value="{{ data.get('UBC Asset Tag','') }}">
             </div>
 
             <div>
@@ -134,7 +140,7 @@
             <div>
               <label class="form-label">Description (auto)</label>
               <input id="descField" type="text" class="form-control" value="{{ data.get('Description','') }}" readonly>
-              <div class="desc-hint">Generated automatically using <b>UBC Asset Tag</b> or <b>Branch Panel</b>.</div>
+              <div class="desc-hint">Generated automatically from <b>UBC Asset Tag</b> (or Branch Panel, if present in JSON).</div>
             </div>
 
             <div class="form-check mt-2">
@@ -142,12 +148,11 @@
               <label class="form-check-label" for="flagged">Flag for Review</label>
             </div>
 
-            <!-- Save buttons ONLY here -->
             <div class="d-flex gap-2 mt-2">
               <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">Back</a>
               <button type="submit" class="btn btn-primary btn-sm" name="action" value="save">Save</button>
-              <button type="submit" class="btn btn-outline-dark btn-sm" name="action" value="save_prev">⬅️ Save & Prev</button>
-              <button type="submit" class="btn btn-primary btn-sm" name="action" value="save_next">Save & Next</button>
+              <button type="submit" class="btn btn-outline-dark btn-sm" name="action" value="save_prev">⏮ Save & Prev</button>
+              <button type="submit" class="btn btn-primary btn-sm" name="action" value="save_next">Save & Next ⏭</button>
             </div>
 
           </div>
@@ -157,31 +162,28 @@
   </div>
 
   <footer class="text-center mt-3 pt-3 text-muted small">
-    © 2025 University of British Columbia - Maintenance Planning Department. All rights reserved.
+    &copy; 2025 University of British Columbia - Maintenance Planning Department. All rights reserved.
   </footer>
 
   <script>
     (function(){
-      // zoom/rotate
       const img = document.getElementById('mainImage');
       let scale=1, rot=0;
-      const apply = ()=> img.style.transform = `scale(${scale}) rotate(${rot}deg)`;
+      const apply = ()=> img && (img.style.transform = `scale(${scale}) rotate(${rot}deg)`);
       document.getElementById('zoomIn').onclick  = ()=>{ scale=Math.min(scale+0.1,3.5); apply(); };
       document.getElementById('zoomOut').onclick = ()=>{ scale=Math.max(scale-0.1,0.3); apply(); };
       document.getElementById('rotate').onclick  = ()=>{ rot=(rot+90)%360; apply(); };
 
-      // thumbs
       document.querySelectorAll('.thumb').forEach(t=>{
         t.addEventListener('click',()=>{
           const url=t.getAttribute('data-url');
           if(!url) return;
           document.querySelectorAll('.thumb').forEach(x=>x.classList.remove('active'));
           t.classList.add('active');
-          img.src=url; scale=1; rot=0; apply();
+          if(img){ img.src=url; scale=1; rot=0; apply(); }
         });
       });
 
-      // keep dashboard filters
       try{
         const q=localStorage.getItem('dashboardQuery')||'';
         ['backTop','backUnderPic'].forEach(id=>{
@@ -190,29 +192,16 @@
         const hidden=document.getElementById('dashboard_query'); if(hidden) hidden.value=q||'';
       }catch(e){}
 
-      // auto description from UBC Tag or Branch
       const desc = document.getElementById('descField');
       function recompute(){
         const ubc=(document.querySelector('input[name="UBC Asset Tag"]')?.value||'').trim();
         const branch=(document.querySelector('input[name="Branch Panel"]')?.value||'').trim();
         const tag = ubc || branch;
-        desc.value = tag ? `Panel - ${tag}` : 'Panel';
+        if(desc) desc.value = tag ? `Panel - ${tag}` : 'Panel';
       }
       ['UBC Asset Tag','Branch Panel'].forEach(n=>{
         const el=document.querySelector(`input[name="${n}"]`);
         if(el){ el.addEventListener('input',recompute); el.addEventListener('change',recompute); }
-      });
-
-      // keyboard shortcuts (still active)
-      document.addEventListener('keydown', (e)=>{
-        if (e.target && /input|select|textarea/i.test(e.target.tagName)) return;
-        const click=(sel)=>{const el=document.querySelector(sel); if(el){el.click(); e.preventDefault();}}
-        if(e.key==='z'||e.key==='Z') click('#zoomIn');
-        if(e.key==='x'||e.key==='X') click('#zoomOut');
-        if(e.key==='r'||e.key==='R') click('#rotate');
-        if(e.key==='s'||e.key==='S') click('button[name="action"][value="save"]');
-        if(e.key==='n'||e.key==='N') click('button[name="action"][value="save_next"]');
-        if(e.key==='p'||e.key==='P') click('button[name="action"][value="save_prev"]');
       });
     })();
   </script>
