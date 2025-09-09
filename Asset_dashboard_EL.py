@@ -171,9 +171,7 @@ def _sync_db_from_structured(qr: str, building: str, sd: dict):
     branch = (sd.get("Branch Panel") or "").strip()  # kept for Description, hidden in UI
     ubc_final = ubc if ubc else branch
 
-    attr = (sd.get("Attribute") or "").strip()
-    if not attr:
-        attr = _fetch_attribute_default_for_code("Electrical")
+    attr = "Electrical"
 
     approved_db = "1" if (sd.get("Approved") or "").strip() == "True" else ""
 
@@ -233,10 +231,7 @@ def load_json_items():
             data.setdefault("Flagged", "false")
 
             # Defaults
-            if not (data.get("Attribute") or "").strip():
-                default_attr = _fetch_attribute_default_for_code("Electrical")
-                if default_attr:
-                    data["Attribute"] = default_attr
+            data["Attribute"] = "Electrical"
             if not (data.get("Asset Group") or "").strip():
                 data["Asset Group"] = ASSET_GROUP_DEFAULT
 
@@ -337,10 +332,7 @@ def review(doc_id):
     data.setdefault("Flagged", "false")
 
     # Defaults
-    if not (data.get("Attribute") or "").strip():
-        default_attr = _fetch_attribute_default_for_code("Electrical")
-        if default_attr:
-            data["Attribute"] = default_attr
+    data["Attribute"] = "Electrical"
     if not (data.get("Asset Group") or "").strip():
         data["Asset Group"] = ASSET_GROUP_DEFAULT
 
@@ -416,6 +408,11 @@ def save_review(doc_id):
         if structured.get(field, "") != form_value:
             json_data["modified"] = True
         structured[field] = form_value
+
+    # Force Attribute to be "Electrical"
+    if structured.get("Attribute") != "Electrical":
+        json_data["modified"] = True
+    structured["Attribute"] = "Electrical"
 
     # New form fields not present yet
     for field, form_value in request.form.items():
