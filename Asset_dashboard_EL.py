@@ -6,6 +6,7 @@ import json
 import re
 import sqlite3
 from functools import lru_cache
+from threading import Lock
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify
 
 # ---------------------------------------------------------------------
@@ -49,6 +50,147 @@ SEQ_SHOW = ALL_SHOW[:]
 
 # JSON filename pattern: "<QR>_EL_<Building>.json" (ex.: 0000123456_EL_314-1.json)
 JSON_NAME_RE = re.compile(r"^(\d+)_EL_(\d+(?:-\d+)?)\.json$")
+
+
+# --- START: Directory Sync Logic ---
+
+DATA_DIR = os.path.dirname(DB_PATH)
+
+# --- Image Sync ---
+PROCESSED_LOG_EL = os.path.join(DATA_DIR, "processed_images_el.log")
+IMG_NAME_RE_EL = re.compile(r"^(\d+)\s+(.+?)\s+EL\s+-\s+[0-2]\.(?:jpe?g|png)$", re.IGNORECASE)
+image_sync_lock = Lock()
+
+# --- JSON Sync ---
+PROCESSED_JSON_LOG_EL = os.path.join(DATA_DIR, "processed_json_el.log")
+json_sync_lock = Lock()
+
+
+def _is_el_filename(filename: str) -> bool:
+    """True if the JSON is for an EL asset type."""
+    return bool(JSON_NAME_RE.match(filename))
+
+
+def sync_image_directory_to_db_el():
+    """
+    Scans IMG_DIR for new EL image files and upserts placeholder entries into sdi_dataset_EL.
+    """
+    if not image_sync_lock.acquire(blocking=False):
+        return
+
+    try:
+        if not os.path.isdir(IMG_DIR):
+            return
+
+        processed_files = set()
+        if os.path.exists(PROCESSED_LOG_EL):
+            with open(PROCESSED_LOG_EL, 'r', encoding='utf-8') as f:
+                processed_files = {line.strip() for line in f if line.strip()}
+
+        current_files = {f for f in os.listdir(IMG_DIR) if f.lower().endswith(tuple(VALID_IMAGE_EXTS))}
+        new_files = sorted(list(current_files - processed_files))
+
+        if not new_files:
+            return
+
+        print(f"SYNC-IMG (EL): Found {len(new_files)} new image(s).")
+        successfully_processed = []
+        for filename in new_files:
+            match = IMG_NAME_RE_EL.match(filename)
+            if not match:
+                if " EL " in filename:
+                    successfully_processed.append(filename)
+                continue
+
+            qr, building = match.groups()
+            try:
+                print(f"   -> Syncing placeholder for QR: {qr.strip()}, Building: {building.strip()} from {filename}")
+                _sync_db_from_structured(qr=qr.strip(), building=building.strip(), sd={})
+                successfully_processed.append(filename)
+            except Exception as e:
+                print(f"SYNC-IMG-ERROR (EL): DB upsert failed for {filename}: {e}")
+
+        if successfully_processed:
+            with open(PROCESSED_LOG_EL, 'a', encoding='utf-8') as f:
+                for filename in successfully_processed:
+                    f.write(f"{filename}\n")
+    finally:
+        image_sync_lock.release()
+
+
+def sync_json_directory_to_db_el():
+    """
+    Scans JSON_DIR for new or modified EL JSON files and upserts their structured data.
+    """
+    if not json_sync_lock.acquire(blocking=False):
+        return
+
+    try:
+        if not os.path.isdir(JSON_DIR):
+            return
+
+        processed_files = {}
+        if os.path.exists(PROCESSED_JSON_LOG_EL):
+            with open(PROCESSED_JSON_LOG_EL, 'r', encoding='utf-8') as f:
+                try:
+                    processed_files = json.load(f)
+                except json.JSONDecodeError:
+                    print("SYNC-JSON-WARN (EL): Could not read log, starting fresh.")
+
+        files_to_process = {}
+        for filename in os.listdir(JSON_DIR):
+            if not _is_el_filename(filename):
+                continue
+            
+            filepath = os.path.join(JSON_DIR, filename)
+            current_mtime = os.path.getmtime(filepath)
+            
+            if filename not in processed_files or current_mtime > processed_files.get(filename, 0):
+                files_to_process[filename] = current_mtime
+
+        if not files_to_process:
+            return
+
+        print(f"SYNC-JSON (EL): Found {len(files_to_process)} new/updated JSON file(s).")
+        for filename, mtime in files_to_process.items():
+            match = JSON_NAME_RE.match(filename)
+            if not match:
+                continue
+            
+            qr, building = match.groups()
+            try:
+                with open(os.path.join(JSON_DIR, filename), 'r', encoding='utf-8') as f:
+                    content = json.load(f)
+                
+                structured_data = content.get("structured_data", {})
+                if isinstance(structured_data, dict):
+                    print(f"   -> Syncing full data from {filename}")
+                    _sync_db_from_structured(qr=qr, building=building, sd=structured_data)
+                    processed_files[filename] = mtime
+                else:
+                    processed_files[filename] = mtime # Log as processed even if data is bad
+
+            except Exception as e:
+                print(f"SYNC-JSON-ERROR (EL): Failed to process {filename}: {e}")
+        
+        with open(PROCESSED_JSON_LOG_EL, 'w', encoding='utf-8') as f:
+            json.dump(processed_files, f, indent=2)
+
+    finally:
+        json_sync_lock.release()
+
+
+@app.before_request
+def before_request_handler():
+    """
+    Runs sync logic before each request for EL assets.
+    """
+    if request.endpoint in ('static', 'serve_image'):
+        return
+    sync_image_directory_to_db_el()
+    sync_json_directory_to_db_el()
+
+# --- END: Directory Sync Logic ---
 
 
 def find_image(qr: str, building: str, seq_tag: str):
@@ -136,6 +278,11 @@ def _db_upsert_el_row(conn, row: dict):
         "Supply From", "Volts", "Location", "Asset Group", "Attribute", "Approved"
     ]
     existing = _db_existing_cols(conn)
+    if not existing:
+        print(f"SYNC-ERROR: Target table '{SDI_TABLE}' does not exist or has no columns.")
+        return "error"
+        
+    cur = conn.cursor()
 
     # UPDATE first
     set_cols = [c for c in all_cols if c in existing and c not in ("QR Code", "Building")]
@@ -147,7 +294,7 @@ def _db_upsert_el_row(conn, row: dict):
              WHERE "QR Code"=? AND "Building"=?
         '''
         params_upd = [row.get(c, "") for c in set_cols] + [row.get("QR Code", ""), row.get("Building", "")]
-        cur = conn.execute(sql_upd, params_upd)
+        cur.execute(sql_upd, params_upd)
         if cur.rowcount and cur.rowcount > 0:
             return "updated"
 
@@ -158,7 +305,7 @@ def _db_upsert_el_row(conn, row: dict):
         INSERT INTO "{SDI_TABLE}" ({",".join(f'"{c}"' for c in ins_cols)})
         VALUES ({placeholders})
     '''
-    conn.execute(sql_ins, [row.get(c, "") for c in ins_cols])
+    cur.execute(sql_ins, [row.get(c, "") for c in ins_cols])
     return "inserted"
 
 
@@ -185,7 +332,7 @@ def _sync_db_from_structured(qr: str, building: str, sd: dict):
         "Supply From": (sd.get("Supply From") or "").strip(),
         "Volts": (sd.get("Volts") or "").strip(),
         "Location": (sd.get("Location") or "").strip(),
-        "Asset Group": (sd.get("Asset Group") or "").strip(),
+        "Asset Group": (sd.get("Asset Group") or "").strip() or ASSET_GROUP_DEFAULT,
         "Attribute": attr,
         "Approved": approved_db,
     }
